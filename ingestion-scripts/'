@@ -1,0 +1,781 @@
+#!/usr/bin/env python
+
+"""
+Rick Mesta <rick.mesta@nexenta.com>
+Copyright 2015 Nexenta Systems, Inc. All rights reserved.
+
+Central script to convert all raw text files of interest into
+their json counterparts, for their eventual absorption in the
+Nexenta dashboard.
+"""
+import sys
+import json
+import time
+from functions import *                 # local functions.py file
+
+r2j_ver = '1.0.0'
+Debug = False
+
+# name of this script
+script_name = 'A3-raw-to-json.py'
+
+def aptsrc_jsp(srcslist):
+    idx = 1
+    jsp = {'repos' : {}}                # json encoded data string
+    for i in read_raw_txt(srcslist):
+        key = 'repo-' + str(idx)
+        row = {}                        # each repo represents one row
+        for l in i.split():
+            patt = '^(deb[a-zA-Z0-9-_]*)$'
+            mp = re.match(patt, l)
+            if mp:
+                row['title'] = mp.group(1)
+                continue
+
+            patt = '^(http.*)$'
+            mp = re.match(patt, l)
+            if mp:
+                row['link'] = mp.group(1)
+                continue
+
+            patt = '^([a-zA-Z0-9_]+)-([a-zA-Z0-9_]+)$'
+            mp = re.match(patt, l)
+            if mp:
+                if mp.group(1) == 'non' and mp.group(2) == 'free':
+                    row['perks'] = mp.group(1) + '-' + mp.group(2)
+                    continue
+                row['osrel'] = mp.group(1) + '-' + mp.group(2)
+                continue
+
+            patt = '^(main)$'
+            mp = re.match(patt, l)
+            if mp:
+                row['branch'] = mp.group(1)
+                continue
+
+            patt = '^(contrib)$'
+            mp = re.match(patt, l)
+            if mp:
+                row['repcon'] = mp.group(1)
+                continue
+
+        jsp['repos'][key] = row
+        idx += 1
+
+    return jsp
+
+
+def aptsrc_json(bdir):
+    fname = os.path.join(bdir, 'appliance/sources.list')
+    jsout = fname + '.json'
+    jsdct = aptsrc_jsp(fname)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def nmchkpt_jsp(fname):
+    hdrs = []
+    for e in read_raw_txt(fname)[0].split():
+        pattern = '[A-Z-]+'
+        mp = re.match(pattern, e)
+        if mp:
+            hdrs.append(mp.group(0).lower())
+
+    data = []
+    for d in read_raw_txt(fname):
+        patt = '^rootfs.*'
+        mp = re.match(patt, d)
+        if mp:
+            data.append(mp.group(0))
+
+    lines = 0
+    for d in data:
+        lines += 1
+
+    idx = lines
+    json_data = {'checkpoints': {}}
+    for d in data:
+        key = 'chkpt-' + str(idx)
+        new = {}
+
+        patt1 = '([\w-]+)\s+([a-zA-Z]+\s*\d+\s*\d+:\d+\s*\d+)'
+        patt2 = '\s+(\w+)\s+(\w+)\s+(\w+)\s+([0-9.]+)$'
+        pattern = patt1 + patt2
+        mp = re.match(pattern, d)
+        if mp:
+            for i in xrange(1, len(hdrs)):
+                new[hdrs[i-1]] = mp.group(i)
+
+        idx -= 1
+        json_data['checkpoints'][key] = new
+
+    return json_data
+
+
+def nmchkpt_json(bdir):
+    fname = os.path.join(bdir, 'appliance/nmc-c-show-appliance-checkpoint')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+    if not valid_output(fname):
+        print 'Non-zero return code: refer to', stfile, 'for additional info'
+        sys.exit(-1)
+
+    jsdct = nmchkpt_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def hddisco_json(bdir):
+    fname = os.path.join(bdir, 'disk/hddisco')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+    if not valid_output(fname):
+        print 'Non-zero return code: refer to', stfile, 'for additional info'
+        sys.exit(-1)
+
+    jsdct = hddisco(bdir)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def process_devid(ln):
+    """
+    Given line similar to:
+
+    c0t5000C5005EC60D43d0 Soft Errors: 0 Hard Errors: 0 Transport Errors: 0
+
+    ... process it and return a key/value pair dictionary
+    """
+    kvp = {}
+    patt = '^(\w+)\s+.*$'
+    mp = re.match(patt, ln)
+    if mp:
+        devid = mp.group(1)
+    else:
+        print "Fatal error parsing dev line"
+        sys.exit(-1)
+    kvp['devid'] = devid.lower()
+
+    patt = '^\w+\s+([a-zA-Z0-9\s]*):\s+(\d+).*$'
+    mp = re.match(patt, ln)
+    if mp:
+        softe = mp.group(1)
+        value = mp.group(2)
+    else:
+        print "Fatal error parsing soft errors"
+        sys.exit(-1)
+    kvp[softe.lower()] = value.lower()
+
+    patt1 = '^\w+\s+[a-zA-Z0-9\s]*:\s+\d+\s+'
+    patt2 = '([a-zA-Z0-9\s]*):\s+(\d+).*$'
+    patt = patt1 + patt2
+    mp = re.match(patt, ln)
+    if mp:
+        harde = mp.group(1)
+        nvalu = mp.group(2)
+    else:
+        print "Fatal error parsing hard errors"
+        sys.exit(-1)
+    kvp[harde.lower()] = nvalu.lower()
+
+    patt1 = '^\w+\s+[a-zA-Z0-9\s]*:\s+\d+\s+[a-zA-Z0-9\s]*:\s+\d+'
+    patt2 = '\s+([a-zA-Z0-9\s]*):\s+(\d+)$'
+    patt = patt1 + patt2
+    mp = re.match(patt, ln)
+    if mp:
+        xprte = mp.group(1)
+        xprvl = mp.group(2)
+    else:
+        print "Fatal error parsing transport errors"
+        sys.exit(-1)
+    kvp[xprte.lower()] = xprvl.lower()
+
+    return kvp
+
+
+def process_vendor(l):
+    """
+    Given list of items similar to:
+
+    ['Vendor:', 'ATA', 'Product:', 'ST1000NM0011', 'Revision:', 'SN03',
+     'Serial', 'No:']
+    """
+    kvp = {}
+    lst = [x.strip() for x in l]        # remove leading/trailing \s
+
+    l = len([x.strip(':').lower() for x in lst])
+    if l == 8:
+        try:                        # now remove any ':' from the fields
+            V, v, P, p, R, r, S, s = [x.strip(':').lower() for x in lst]
+        except ValueError:
+            print "process_vendor: no serial # provided"
+        no = ''
+    elif l == 9:    
+        try:                        # now remove any ':' from the fields
+            V, v, P, p, R, r, S, s, no = [x.strip(':').lower() for x in lst]
+        except ValueError:
+            print "process_vendor: serial # provided"
+
+    kvp[V] = v      # Vendor
+    kvp[P] = p      # Product
+    kvp[R] = r      # Revision
+    sn = S + ' ' + s
+    kvp[sn] = no    # Serial No.
+
+    return kvp
+
+
+def process_mederr_devrdy(ln):
+    """
+    Given line similar to:
+
+    Media Error: 0 Device Not Ready: 0 No Device: 0 Recoverable: 0
+
+    ... process it and return a key/value pair dictionary
+    """
+    kvp = {}
+    patt = '^(\w+\s+\w+):\s+(\d+).*$'   # Media Error: 0
+    mp = re.match(patt, ln)
+    if mp:
+        mederr = mp.group(1)
+        errval = mp.group(2)
+    else:
+        print "Fatal error parsing media error line"
+        sys.exit(-1)
+    kvp[mederr.lower()] = errval.lower()
+
+    patt1 = '^\w+\s+\w+:\s+\d+\s+'
+    patt2 = '([a-zA-Z0-9\s]*):\s+(\d+).*$'
+    patt = patt1 + patt2                # Device Not Ready: 0
+    mp = re.match(patt, ln)
+    if mp:
+        devrdy = mp.group(1)
+        isredy = mp.group(2)
+    else:
+        print "Fatal error parsing device readiness errors"
+        sys.exit(-1)
+    kvp[devrdy.lower()] = isredy.lower()
+
+    patt1 = '^[a-zA-Z0-9\s]*:\s+\d+\s+[a-zA-Z0-9\s]*:\s+\d+\s+'
+    patt2 = '([a-zA-Z0-9\s]*):\s+(\d+).*$'
+    patt = patt1 + patt2                # No Device: 0
+    mp = re.match(patt, ln)
+    if mp:
+        device = mp.group(1)
+        exists = mp.group(2)
+    else:
+        print "Fatal error parsing device existence line"
+        sys.exit(-1)
+    kvp[device.lower()] = exists.lower()
+
+    patt1 = '^[a-zA-Z0-9\s]*:\s+\d+\s+[a-zA-Z0-9\s]*:\s+\d+\s+'
+    patt2 = '[a-zA-Z0-9\s]*:\s+\d+\s+([a-zA-Z0-9\s]*):\s+(\d+).*$'
+    patt = patt1 + patt2                # Recoverable: 0
+    mp = re.match(patt, ln)
+    if mp:
+        recovr = mp.group(1)
+        isrecv = mp.group(2)
+    else:
+        print "Fatal error parsing device recoverability line"
+        sys.exit(-1)
+    kvp[recovr.lower()] = isrecv.lower()
+
+    return kvp
+
+def process_illreq_pfa(ln):
+    """
+    Given line similar to:
+
+    Illegal Request: 4075154 Predictive Failure Analysis: 0
+
+    ... process it and return a key/value pair dictionary
+    """
+    kvp = {}
+    patt = '^(\w+\s+\w+):\s+(\d+).*$'   # Illegal Request: <num>
+    mp = re.match(patt, ln)
+    if mp:
+        illreq = mp.group(1)
+        rqstct = mp.group(2)
+    else:
+        print "Fatal error parsing illegal request line"
+        sys.exit(-1)
+    kvp[illreq.lower()] = rqstct.lower()
+
+    patt1 = '^\w+\s+\w+:\s+\d+\s+'
+    patt2 = '([a-zA-Z0-9\s]*):\s+(\d+).*$'
+    patt = patt1 + patt2                # Predictive Failure Analysis: 0
+    mp = re.match(patt, ln)
+    if mp:
+        pfatxt = mp.group(1)
+        pfacnt = mp.group(2)
+    else:
+        print "Fatal error parsing predictive failure analysis line"
+        sys.exit(-1)
+    kvp[pfatxt.lower()] = pfacnt.lower()
+
+    return kvp
+
+
+def iostat_jsp(fname):
+    iostat = {}
+
+    for line in read_raw_txt(fname):
+        # If the line begins with 'c', process device id
+        if line.startswith('c'):
+            devnerrs = process_devid(line.strip())
+            if Debug:
+                print "devnerrs: ", devnerrs
+            devid = devnerrs['devid']
+            iostat[devid] = {}
+            for k in sorted(devnerrs.keys()):
+                if k == 'devid':
+                    continue
+                iostat[devid][k] = devnerrs[k]
+
+        # Parse Vendor information
+        elif line.startswith('V'):
+            lst = [x.strip() for x in line.split()]
+            vdrprodrev = process_vendor(lst)
+            if vdrprodrev is not None:
+                if Debug:
+                    print 'vdrprodrev: ', vdrprodrev
+                for k in sorted(vdrprodrev.keys()):
+                    iostat[devid][k] = vdrprodrev[k]
+
+        # Parse Size Info
+        elif line.startswith('S'):
+            try:
+                Sz, sz, Tr, tr = [x.strip() for x in line.split()]
+            except ValueError:
+                print "S ValueError"
+                continue
+            if Debug:
+                print Sz, sz
+            iostat[devid][Sz.lower()] = sz.lower()
+
+        # Parse Media Error, Device Readiness, etc.
+        elif line.startswith('M'):
+            medredss = process_mederr_devrdy(line.strip())
+            if Debug:
+                print 'medredss: ', medredss
+            for k in sorted(medredss.keys()):
+                iostat[devid][k] = medredss[k]
+
+        # Parse Illegal Request, Predictive Failure Analysis.
+        elif line.startswith('I'):
+            irqst_pfa = process_illreq_pfa(line.strip())
+            if Debug:
+                print 'irqst_pfa: ', irqst_pfa
+            for k in sorted(irqst_pfa.keys()):
+                iostat[devid][k] = irqst_pfa[k]
+
+    return iostat
+
+
+def iostat_json(bdir):
+    fname = os.path.join(bdir, 'disk/iostat-en')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+    if not valid_output(fname):
+        print 'Non-zero return code: refer to', stfile, 'for additional info'
+        sys.exit(-1)
+
+    jsdct = iostat_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def nfsstat_jsp(fname):
+    nfsstat = {}
+    stats = {}
+
+    stype = None
+    srv = None
+    scalls = False
+    nfsver = 0
+    vers = ''
+    done = False
+    for line in read_raw_txt(fname):
+        if line.startswith('Server '):
+            patt = '^Server\s+(.*):$'
+            mp = re.match(patt, line)
+            if mp:
+                srv = mp.group(1).lower()
+
+                if srv == 'rpc':
+                    nfsstat[srv] = {}
+                    stype = 'RPC'
+                    # next line will be Connection
+                elif srv == 'nfsv2' or  srv == 'nfsv3' or srv == 'nfsv4':
+                    nfsstat[srv] = {}
+                    stype = 'RPC'
+                    # next line will be call stats
+                elif srv == 'nfs_acl':
+                    nfsstat[srv] = {}
+                continue
+
+        elif line.startswith('Version '):
+            patt = '^Version\s+(\d+):\s+\((\d+)\s+(\w+)\)$'
+            mp = re.match(patt, line)
+            if mp:
+                version = int(mp.group(1))
+                nmcalls = int(mp.group(2))
+                cops = mp.group(3)
+                if version == 2 or version == 3:
+                    if srv == 'nfs_acl':
+                        stype = 'ACL'
+                    else:
+                        stype = 'NFS'
+                        srv = 'nfsv' + str(version)
+                    nfsstat[srv][version] = {}
+                elif version == 4:
+                    srv = 'nfsv' + str(version)
+                    stype = 'NFS'
+                    if not done:
+                        nfsstat[srv][version] = {}
+                        done = True
+                    nfsstat[srv][version][cops] = {}
+                    nfsstat[srv][version][cops]['Total'] = nmcalls
+            continue
+
+        elif stype == 'RPC':
+            if srv == 'rpc':
+                if line.startswith('Connection'):
+                    patt = '^(Connection.*):$'
+                    mp = re.match(patt, line)
+                    if mp:
+                        conn = mp.group(1).lower()
+                        nfsstat[srv][conn] = {}
+                        # next line will be conn stats tags
+                    continue
+
+                elif line.startswith('calls'):
+                    Tags = [x.strip() for x in line.split()]
+                    # next line will be conn stats values
+                    continue
+
+                else:
+                    patt = '^[0-9]+.*$'
+                    mp = re.match(patt, line)
+                    if mp:
+                        idx = 0
+                        Values = [x.strip() for x in line.split()]
+                        for v in Values:
+                            nfsstat[srv][conn][Tags[idx]] = v
+                            idx += 1
+                        continue
+            elif srv == 'nfsv2' or srv == 'nfsv3' or srv == 'nfsv4':
+                if line.startswith('calls'):
+                    Tags = [x.strip() for x in line.split()]
+                    nfsstat[srv]['stats'] = {}
+                    # next line will be conn stats values
+                    continue
+
+                else:
+                    patt = '^[0-9]+.*$'
+                    mp = re.match(patt, line)
+                    if mp:
+                        idx = 0
+                        Values = [x.strip() for x in line.split()]
+                        for v in Values:
+                            nfsstat[srv]['stats'][Tags[idx]] = v
+                            idx += 1
+                        continue
+
+        elif stype == 'NFS':
+            patt = '^[a-zA-Z]+.*$'
+            mp = re.match(patt, line)
+            if mp:
+                Tags = [x.strip() for x in line.split()]
+                continue
+
+            patt = '^[0-9]+.*$'
+            mp = re.match(patt, line)
+            if mp:
+                idx = 0
+                Vals = [x.strip() for x in line.split()]
+                for t in Tags:
+                    if srv == 'nfsv2' and version == 2 or   \
+                       srv == 'nfsv3' and version == 3:
+                        nfsstat[srv][version][t] = {}
+                        nfsstat[srv][version][t]['calls'] = Vals[idx]
+                        idx += 1
+                        nfsstat[srv][version][t]['prcnt'] = Vals[idx]
+                        idx += 1
+                    elif version == 4:
+                        nfsstat[srv][version][cops][t] = {}
+                        nfsstat[srv][version][cops][t]['calls'] = Vals[idx]
+                        idx += 1
+                        nfsstat[srv][version][cops][t]['prcnt'] = Vals[idx]
+                        idx += 1
+            continue
+
+        elif stype == 'ACL':
+            if line.startswith('Version '):
+                patt = '^Version\s+(\d+):\s+\((\d+).*\)$'
+                mp = re.match(patt, line)
+                if mp:
+                    version = int(mp.group(1))
+                    nmcalls = int(mp.group(2))
+                continue
+
+            patt = '^[a-zA-Z]+.*$'
+            mp = re.match(patt, line)
+            if mp:
+                Tags = [x.strip() for x in line.split()]
+                continue
+
+            patt = '^[0-9]+.*$'
+            mp = re.match(patt, line)
+            if mp:
+                idx = 0
+                Vals = [x.strip() for x in line.split()]
+                for t in Tags:
+                    if srv == 'nfs_acl':
+                        nfsstat[srv][version][t] = {}
+                    nfsstat[srv][version][t]['calls'] = Vals[idx]
+                    idx += 1
+                    nfsstat[srv][version][t]['prcnt'] = Vals[idx]
+                    idx += 1
+                continue
+
+    return nfsstat
+
+
+def nfsstat_json(bdir):
+    fname = os.path.join(bdir, 'nfs/nfsstat-s')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+    if not valid_output(fname):
+        print 'Non-zero return code: refer to', stfile, 'for additional info'
+        sys.exit(-1)
+
+    jsdct = nfsstat_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def sharectl_getnfs_jsp(fname):
+    sharectl = {}
+
+    for line in read_raw_txt(fname):
+        patt = '^(\w+)=(\w*)$'
+        mp = re.match(patt, line)
+        if mp:
+            key = mp.group(1)
+            val = mp.group(2)
+            sharectl[key] = val
+            
+    return sharectl
+
+
+def sharectl_getnfs_json(bdir):
+    fname = os.path.join(bdir, 'nfs/sharectl-get-nfs')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+    if not valid_output(fname):
+        print 'Non-zero return code: refer to', stfile, 'for additional info'
+        sys.exit(-1)
+
+    jsdct = sharectl_getnfs_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def sharemgr_showvp_nfs_jsp(fname):
+    sharemgr = {}
+
+    for line in read_raw_txt(fname):
+        patt = '^(\w+)\s+(\w+)=\(\)$'   # NB: if other stuff w/in parens, 
+        mp = re.match(patt, line)       #     we'll need to revisit this
+        if mp:
+            key = mp.group(1)
+            val = mp.group(2)
+            sharemgr[key] = val
+            
+    return sharemgr
+
+
+def sharemgr_showvp_nfs_json(bdir):
+    fname = os.path.join(bdir, 'nfs/sharemgr-show-vp-p-nfs')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+    if not valid_output(fname):
+        print 'Non-zero return code: refer to', stfile, 'for additional info'
+        sys.exit(-1)
+
+    jsdct = sharemgr_showvp_nfs_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def svccfg_nfsprops_jsp(fname):
+    nfsprops = {}
+
+    for line in read_raw_txt(fname):
+
+        patt = '^([a-z_-]+)\s+(.*)$'
+        mp = re.match(patt, line)
+        if mp:
+            cat = mp.group(1)
+            key = mp.group(2)
+            if Debug:
+                print 'Category:', cat
+            nfsprops[cat] = {}
+
+        ptrn = '^([a-z_-]+)[/]+([a-z_-]+)\s+(\w+)\s+(.*)$'
+        mp = re.match(ptrn, line)
+        if mp:
+            if cat == mp.group(1):
+                sub = mp.group(2)
+                typ = mp.group(3)
+                if typ == 'time':
+                    val = time.ctime(float(mp.group(4)))
+                else:
+                    val = mp.group(4)
+                if Debug:
+                    print '\t', sub, ':', val
+                nfsprops[cat][sub] = val
+                
+    return nfsprops
+
+
+def svccfg_nfsprops_json(bdir):
+    fname = os.path.join(bdir, \
+        'nfs/svccfg-s-svcnetworknfsserverdefault-listprop')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+    if not valid_output(fname):
+        print 'Non-zero return code: refer to', stfile, 'for additional info'
+        sys.exit(-1)
+
+    jsdct = svccfg_nfsprops_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def scsi_vhci_jsp(fname):
+    scsivhci = {}
+    ml = []
+
+    mls = False
+    for line in read_raw_txt(fname):
+
+        patt = '^(#|$)'
+        mp = re.match(patt, line)
+        if mp:
+            continue
+
+        # one entry per line
+        patt = '^([a-z_-]+)="([a-z_-]+)";'
+        mp = re.match(patt, line)
+        if mp:
+            print mp.group(1), ':', mp.group(2)
+
+        # two entries per line
+        patt = '^([a-z_-]+)="([a-z_-]+)"\s+([a-z_-]+)="([a-z_-]+)"'
+        mp = re.match(patt, line)
+        if mp:
+            print mp.group(1), ':', mp.group(2)
+            print mp.group(3), ':', mp.group(4)
+
+        # multi-line start
+        patt = '^([a-z_-]+)\s+=$'
+        mp = re.match(patt, line)
+        if mp:
+            title = mp.group(1)
+            mls = True
+            print title,
+        
+        # collect multiple lines in ml array
+        patt = '^\s+"(\S+)",.*'
+        mp = re.match(patt, line)
+        if mp and mls:
+            ml.append(mp.group(1).lower())
+
+        # hit the end of a multiline
+        patt = '^\s+"(\S+)";.*'
+        mp = re.match(patt, line)
+        if mp and mls:
+            ml.append(mp.group(1).lower())
+            mls = False
+            print ':', ml
+
+        #print line
+                
+    #return scsivhci
+
+
+def scsi_vhci_json(bdir):
+    fname = os.path.join(bdir, 'disk/scsi_vhci.conf')
+    jsout = fname + '.json'
+
+    jsdct = scsi_vhci_jsp(fname)
+    #jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    #json_save(bdir, jsdmp, jsout)
+
+
+#
+# put your actual code within this function.
+# exit 0 on success, exit 1 on failure
+#
+def main(bundle_dir):
+#    convnames = ['aptsrc',      \
+#                'nmchkpt',      \
+#                'hddisco',      \
+#                'iostat',       \
+#                'nfsstat',      \
+#                'sharectl',     \
+#                'sharemgr',     \
+#                'svccfg' ]
+
+    convnames = [ 'scsi_vhci' ]
+
+    convfuncs = { 'aptsrc_json' : aptsrc_json,
+                'nmchkpt_json'  : nmchkpt_json,
+                'hddisco_json'  : hddisco_json,
+                'iostat_json'   : iostat_json,
+                'nfsstat_json'  : nfsstat_json,
+                'sharectl_json' : sharectl_getnfs_json,
+                'sharemgr_json' : sharemgr_showvp_nfs_json,
+                'svccfg_json'   : svccfg_nfsprops_json,
+                'scsi_vhci_json': scsi_vhci_json }
+
+    if verify_bundle_directory(script_name, bundle_dir):
+        for nm in convnames:
+            c = nm + '_json'
+            convfuncs[c](bundle_dir)
+
+    else:
+        print script_name + ": directory (" + bundle_dir + ") not valid."
+        sys.exit(1)
+
+
+# no reason to touch
+if __name__ == '__main__':
+
+    if len(sys.argv) <= 1:
+        print script_name + ": no directory specified."
+    else:
+        main(sys.argv[1])
+
+
+# pydoc
+__author__         = "Rick Mesta"
+__copyright__      = "Copyright 2015 Nexenta Systems, Inc. All rights reserved."
+__credits__        = ["Rick Mesta"]
+__license__        = "undefined"
+__version__        = "$Revision: " + r2j_ver + " $"
+__created_date__   = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
+__last_updated__   = "$Date: 2015-03-10 18:00:00 +0600 (Tue, 10 Mar 2015) $"
+__maintainer__     = "Rick Mesta"
+__email__          = "rick.mesta@nexenta.com"
+__status__         = "Production"
+
