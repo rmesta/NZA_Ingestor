@@ -1307,7 +1307,7 @@ def collector_for_this_node():
 
 def ingest_in_background():
     global tarfile
-    nza_ingdir = '/root/bin/python/NXTA_DS_Ingestor'
+    nza_ingdir = '.'
     nzingestor = os.path.join(nza_ingdir, 'NZA_Ingestor.py')
 
     print_bold('Ingesting Local Collector Bundle...\t', 'white', False)
@@ -1438,14 +1438,18 @@ def CI_Disk_1():
         vdev = volun_to_vdev(vol, lun)
         if not primed:
             ll = lun
-            lv = iostat[lun]['vendor']
-            vc = 1
-            ls = iostat[lun]['size:']
-            sc = 1
-            lp = iostat[lun]['product']
-            pc = 1
-            lr = iostat[lun]['revision']
-            rc = 1
+            try:
+                lv = iostat[lun]['vendor']
+                vc = 1
+                ls = iostat[lun]['size:']
+                sc = 1
+                lp = iostat[lun]['product']
+                pc = 1
+                lr = iostat[lun]['revision']
+                rc = 1
+            except KeyError:
+                continue
+
             if hc_vmode == 'verbose':
                 prfmt_mc_row('%s, %s, %s, %s, %s, %s, %s' %
                             (ll, lv, lp, lr, ls, vol, vdev),
@@ -1642,7 +1646,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-08-12 09:49:00 +0600 (Wed, 12 Aug 2015) $"
+__last_updated__ = "$Date: 2015-08-12 13:40:00 +0600 (Wed, 12 Aug 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
