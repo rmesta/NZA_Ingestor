@@ -126,13 +126,16 @@ def get_opthac():
                 continue
 
             elif val == 'node1' or val == 'node2':
-                if json_data[c][val]['machid'] == machid:
-                    node = 'master'
-                    print_bold('Primary Node Info', 'white', True)
+                try:
+                    if json_data[c][val]['machid'] == machid:
+                        node = 'master'
+                        print_bold('Primary Node Info', 'white', True)
+                    else:
+                        node = 'slave'
+                        print 'Secondary Node Info'
 
-                else:
-                    node = 'slave'
-                    print 'Secondary Node Info'
+                except KeyError:
+                    continue
 
                 if 'hostname' in json_data[c][val]:
                     host = json_data[c][val]['hostname']
@@ -183,7 +186,15 @@ def get_uptime():
         print_warn('No uptime info in bundle', True)
         return
         
-    print 'Up Time:\t', up_stats['uptime']
+    try:
+        msg = up_stats['uptime']
+
+    except KeyError:
+        print 'Up Time:\t',
+        print_warn('No uptime info in bundle', True)
+        return
+
+    print 'Up Time:\t', msg
     return
 
 
@@ -720,7 +731,7 @@ def jbods():
         if mp:
             vendor = 'SMC'
 
-        patt = '\s*LSI_CORP\s*'
+        patt = '\s*LSI[_A-Z]+\s*'
         mp = re.match(patt, vendor)
         if mp:
             vendor = 'LSI'
@@ -735,10 +746,20 @@ def jbods():
         if mp:
             model = mp.group(2)
 
-        patt = '\s*(LSI_CORP-)(\S*)'
+        patt = '\s*(LSI.*-)(\S*)'
         mp = re.match(patt, model)
         if mp:
-            model = 'LSI_' + mp.group(2)
+            model = 'LSI_' + mp.group(2).rstrip('_')
+
+        patt = '\s*(HP.*-)(\S*)'
+        mp = re.match(patt, model)
+        if mp:
+            model = mp.group(2)
+
+        patt = '\s*(XYRATEX-)(\S*)'
+        mp = re.match(patt, model)
+        if mp:
+            model = mp.group(2)
 
         if vendor == 'SMC':
             patt = '(\S*)-back$'
@@ -756,15 +777,85 @@ def jbods():
 # hddisco Info
 #
 def print_hddko_hdr():
-    prfmt_mc_row('count, vendor, model, firmware, paths',
-                  '%12s,   %12s,  %20s,     %12s,   %7s',
-                 'white,  white, white,    white, white',
-                 ' bold,   bold,  bold,     bold,  bold')
+    prfmt_mc_row('cnt, vendor, model, F/W, mpxio, pcnt, SSD, Target Port(s)',
+                 '%5s,    %8s,  %16s, %5s,   %7s,  %5s, %4s,           %16s',
+                 'white, white, white, white, white, white, white, white',
+                 'bold,   bold,  bold, bold,   bold,  bold,  bold, bold')
 
-    prfmt_mc_row('-----, ----------, ---------------, --------, -----',
-                  '%12s,       %12s,            %20s,     %12s,   %7s',
-                 'white,      white,           white,    white, white',
-                 ' bold,       bold,            bold,     bold,  bold')
+    l = '---, ------, -------------, -----, -----, ----, ---, -----------------'
+    prfmt_mc_row(l,
+                 '%5s,     %8s,  %16s,   %6s,   %5s,   %5s,   %4s,  %18s',
+                 'white, white, white, white, white, white, white, white',
+                 'bold,   bold,  bold,  bold,  bold,  bold,  bold,  bold')
+
+
+def targets(lod):
+
+    #
+    # figure out if a port is used more than once
+    #
+    S = []
+    retcol = 'white'
+    for D in lod:       # for each dictionary in list
+        for k in D.keys():    # for each key in said dictionary
+            if k == 'port':
+                Port = D[k]
+                if Port not in S:
+                    S.append(Port)
+                    if Port == 'Indeterminate':
+                        return 'yellow', S
+                else:
+                    S.append(Port)  # Add the offending port
+                    return 'red', S
+
+    return retcol, S
+
+
+def hdd_json_params(hdko):
+
+    try:
+        vendr = hdko['vendor']
+    except KeyError:
+        vendr = 'unknown'
+
+    patt = '(OCZ)\S+'
+    mp = re.match(patt, vendr)
+    if mp:
+        vdr = mp.group(1)
+    else:
+        vdr = vendr
+
+    try:
+        model = hdko['product'].split()[-1]
+    except KeyError:
+        model = 'Indeterminate'
+
+    try:
+        fware = hdko['revision']
+    except KeyError:
+        fware = '???'
+
+    try:
+        ssd = hdko['is_ssd']
+    except KeyError:
+        ssd = '??'
+
+    try:
+        mpxio = hdko['mpxio_enabled']
+    except KeyError:
+        mpxio = 'no'
+
+    try:
+        pcnt = hdko['path_count']
+    except KeyError:
+        pcnt = 0
+
+    try:
+        serno = hdko['serial']
+    except KeyError:
+        serno = 'unknown'
+
+    return vdr, model, fware, ssd, mpxio, pcnt, serno
 
 
 def hddko():
@@ -780,25 +871,52 @@ def hddko():
         disks = json.load(f)
 
     for hdd in disks:
-        if disks[hdd]['mpxio_enabled'] == "yes":
-            vendr = disks[hdd]['vendor']
-            model = disks[hdd]['product']
-            fware = disks[hdd]['revision']
-            paths = disks[hdd]['path_count']
+        if disks[hdd]['device_type'] != 'disk':
+            continue
+
+        vdr, model, fware, ssd, mpxio, pcnt, serno = hdd_json_params(disks[hdd])
+        if debug:
+            print hdd, vdr, model, fware, '\'%s\'' % ssd,
+
+        if vdr not in brands:
+            brands[vdr] = {}
+        if model not in brands[vdr]:
+            brands[vdr][model] = {}
+        if fware not in brands[vdr][model]:
+            brands[vdr][model][fware] = {}
+        if ssd not in brands[vdr][model][fware]:
+            brands[vdr][model][fware][ssd] = {}
+        if mpxio not in brands[vdr][model][fware][ssd]:
+            brands[vdr][model][fware][ssd][mpxio] = {}
+            brands[vdr][model][fware][ssd][mpxio]['count'] = 0
+        if 'devs' not in brands[vdr][model][fware][ssd][mpxio]:
+            brands[vdr][model][fware][ssd][mpxio]['devs'] = []
+
+        try:
+            port = disks[hdd]['P']['target_port']
+        except KeyError:
+            port = 'Indeterminate'
+        f = {}
+        f['dev'] = hdd
+        f['port'] = port
+        f['sno'] = serno
+        brands[vdr][model][fware][ssd][mpxio]['devs'].append(f)
+
+        if mpxio == "yes":
+            stat = disks[hdd]['P']['path_state']
+
+            brands[vdr][model][fware][ssd][mpxio]['status'] = 'on'
+            brands[vdr][model][fware][ssd][mpxio]['paths'] = pcnt
             if debug:
-                print hdd, vendr, model, fware, paths
+                print 'mpxio', pcnt, port
 
-            if vendr not in brands:
-                brands[vendr] = {}
-            if model not in brands[vendr]:
-                brands[vendr][model] = {}
-            if fware not in brands[vendr][model]:
-                brands[vendr][model][fware] = {}
-            if paths not in brands[vendr][model][fware]:
-                brands[vendr][model][fware][paths] = {}
-                brands[vendr][model][fware][paths]['count'] = 0
+        else:   # mpxio disabled
+            brands[vdr][model][fware][ssd][mpxio]['status'] = 'off'
+            brands[vdr][model][fware][ssd][mpxio]['paths'] = 1
+            if debug:
+                print port
 
-            brands[vendr][model][fware][paths]['count'] += 1
+        brands[vdr][model][fware][ssd][mpxio]['count'] += 1
 
     if debug:
         pprint(brands)
@@ -806,22 +924,73 @@ def hddko():
     print_hddko_hdr()
     for v in brands:
         for m in brands[v]:
+            if m == 'Indeterminate':
+                mc = 'yellow'
+                md = 'bold'
+            else:
+                mc = 'white'
+                md = 'lite'
+
             for f in brands[v][m]:
-                col = 'white'
-                dsp = 'lite'
-                fw = f
+                vc = fc = 'white'
+                vd = fd = 'lite'
                 if v == 'STEC' and m == 'ZeusRAM':
                     if f < 'C023':
-                        col = 'red'
-                        dsp = 'bold'
-                        fw = '   ' + f
-                for p in brands[v][m][f]:
-                    c = brands[v][m][f][p]['count']
-                    prfmt_mc_row('%s, %s, %s, %s, %s' % (c, v, m, fw, p),
-                            '%12s,  %12s,  %20s,  %12s,  %7s',
-                            'white, white, white, %s, white' % col,
-                            'lite,  lite,  lite,  %s,  lite' % dsp)
-                    
+                        fc = 'red'
+                        fd = 'bold'
+                elif v == 'ATA':
+                    vc = 'red'
+                    vd = 'bold'
+                elif v == 'unknown':
+                    vc = 'yellow'
+                    vd = 'bold'
+
+                for d in brands[v][m][f]:
+                    if d == 'yes':
+                        dc = 'green'
+                        dd = 'bold'
+                    else:
+                        dc = 'yellow'
+                        dd = 'lite'
+
+                    for x in brands[v][m][f][d]:
+                        c = brands[v][m][f][d][x]['count']
+                        s = brands[v][m][f][d][x]['status']
+                        p = brands[v][m][f][d][x]['paths']
+
+                        pc, pl = targets(brands[v][m][f][d][x]['devs'])
+                        try:
+                            P = pl[0]
+                        except IndexError:
+                            P = ''
+
+                        if s == 'on':
+                            sc = 'green'
+                            sd = 'bold'
+                        else:
+                            sc = 'yellow'
+                            sd = 'lite'
+                        z = '%s, %s, %s, %s, %s, %s, %s, %s' % \
+                            (c,   v,  m,  f,  s,  p,  d,  P)
+                        y = '%5s, %8s, %16s, %6s, %5s, %5s, %5s, %18s'
+                        w = 'white, %s, %s, %s, %s, white, %s, %s' % \
+                            (vc, mc, fc, sc, dc, pc)
+                        D = 'lite, %s, %s, %s, %s, lite, %s, lite' % \
+                            (vd, md, fd, sd, dd)
+                        prfmt_mc_row(z, y, w, D)
+
+                        if len(pl) > 1:
+                            for prt in pl:
+                                if prt == P:
+                                    continue
+                                z = ' , , , , , , , %s' % prt
+                                y = '%5s, %8s, %16s, %6s, %5s, %5s, %5s, %33s'
+                                w = 'red, red, red, red, red, red, red, %s' % pc
+                                D = 'lite, lite, lite, lite, lite, lite, ' + \
+                                    'lite, lite'
+                                prfmt_mc_row(z, y, w, D)
+                        print
+
 
 #
 # Networking
@@ -1243,6 +1412,27 @@ def lookup_by_machid(dbfile, lkey):
     return None
 
 
+def guess_from_cs():
+    global base
+    File = os.path.join(base, 'collector.stats')
+
+    for l in read_raw_txt(File):
+        if l.startswith('Hostname:'):
+            f = l.split()[-1]
+
+            patt = '^\((\S+)\)$'
+            mp = re.match(patt, f)
+            if mp:
+                fqhn = mp.group(1)
+                try:
+                    return fqhn.split('.')[-2]
+
+                except IndexError:
+                    return fqhn
+
+    return None
+
+
 def get_custy_info(lkey):
 
     DBFile = "./DB/product_reg.db.ryuji.gz"
@@ -1250,6 +1440,9 @@ def get_custy_info(lkey):
     custy = lookup_by_lkey(DBFile, lkey)
     if custy is None:
         custy = lookup_by_machid(DBFile, lkey)
+
+        if custy is None:
+            custy = guess_from_cs()
 
     return custy
 
@@ -1646,7 +1839,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-08-12 13:40:00 +0600 (Wed, 12 Aug 2015) $"
+__last_updated__ = "$Date: 2015-08-21 12:59:00 +0600 (Fri, 21 Aug 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"

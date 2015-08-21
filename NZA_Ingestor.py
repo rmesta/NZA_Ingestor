@@ -1204,7 +1204,7 @@ def process_args():
     #   --ingest    path_to_collector_bundle [ --db-enable ]
     #   --reingest  path_to_collector_bundle [ --db-enable ]
     #   --peek      path_to_collector_bundle
-    #   --dbt       path_to_collector_bundle
+    #   --dbt       path_to_collector_bundle --db-enable
     #   --service
     #
     """
@@ -1346,7 +1346,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + ing_ver + " $"
 __created_date__ = "$Date: 2014-05-14 13:00:00 +0600 (Wed, 14 May 2014) $"
-__last_updated__ = "$Date: 2015-08-12 09:41:00 +0600 (Wed, 12 Aug 2015) $"
+__last_updated__ = "$Date: 2015-08-17 16:36:00 +0600 (Mon, 17 Aug 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Experimental"
