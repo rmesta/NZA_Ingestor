@@ -232,34 +232,34 @@ def hddisco(p):
     """
     # Input file
     f = '/'.join([p, 'disk/hddisco.out'])
-    check_path(f)
 
     disco = {}
 
     # Open file with universal newline support
     with open(f, 'rU') as fh:
         for line in fh.readlines():
-            # If the line begins with '=' set current device id
+            # If the line begins with '=' set current devid
             if line.startswith('='):
-                current_id = line.lstrip('=').strip()
-                disco[current_id] = {'P': {}}
-
+                devid = line.lstrip('=').strip()
+                disco[devid] = {'P': {}}
+                path = 0
             # Parse path information
             elif line.startswith('P'):
-                # Ignore start and end lines
-                if 'start' in line or 'end' in line:
-                    continue
                 try:
-                    p, k, v = [x.strip() for x in line.split()]
-                # The value field is empty sometimes
-                except ValueError:
-                    continue
-                disco[current_id]['P'][k] = v
-
+                    k, v = [x.strip() for x in line.split()[1:]]
+                except:
+                    # Increment path count
+                    if line.startswith("P end"):
+                        path += 1
+                else:
+                    # sd driver doesn't print P start/end
+                    if path not in disco[devid]["P"]:
+                        disco[devid]["P"][path] = {}
+                    disco[devid]["P"][path][k] = v
             # Split line on spaces into key/value pairs
             else:
                 k, v = [x.strip() for x in line.split(None, 1)]
-                disco[current_id][k] = v
+                disco[devid][k] = v
 
     return disco
 

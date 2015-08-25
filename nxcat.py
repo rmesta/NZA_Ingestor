@@ -736,6 +736,11 @@ def jbods():
         if mp:
             vendor = 'LSI'
 
+        patt = '\s*AIC[_A-Z]+\s*'
+        mp = re.match(patt, vendor)
+        if mp:
+            vendor = 'AIC'
+
         patt = '\s*(SuperMicro-)(\S*)'
         mp = re.match(patt, model)
         if mp:
@@ -750,6 +755,11 @@ def jbods():
         mp = re.match(patt, model)
         if mp:
             model = 'LSI_' + mp.group(2).rstrip('_')
+
+        patt = '\s*(AIC.*-)(\S*)'
+        mp = re.match(patt, model)
+        if mp:
+            model = mp.group(2).rstrip('_')
 
         patt = '\s*(HP.*-)(\S*)'
         mp = re.match(patt, model)
@@ -796,16 +806,16 @@ def targets(lod):
     #
     S = []
     retcol = 'white'
-    for D in lod:       # for each dictionary in list
-        for k in D.keys():    # for each key in said dictionary
-            if k == 'port':
-                Port = D[k]
-                if Port not in S:
-                    S.append(Port)
-                    if Port == 'Indeterminate':
+    for Dict in lod:       # for each dictionary in list
+        for k in Dict.keys():    # for each key in said dictionary
+            if k == 'pts':
+                port = Dict[k]
+                if port not in S:
+                    S.append(port)
+                    if port == 'Indeterminate':
                         return 'yellow', S
                 else:
-                    S.append(Port)  # Add the offending port
+                    Dup.append(port)  # Add the offending port
                     return 'red', S
 
     return retcol, S
@@ -892,29 +902,40 @@ def hddko():
         if 'devs' not in brands[vdr][model][fware][ssd][mpxio]:
             brands[vdr][model][fware][ssd][mpxio]['devs'] = []
 
-        try:
-            port = disks[hdd]['P']['target_port']
-        except KeyError:
-            port = 'Indeterminate'
+        #
+        # duplicate WWN detection; formatting for output is done later
+        #
+        ports = []
+        pdups = []
+        for i in xrange(0, int(pcnt)):
+            try:
+                p = disks[hdd]['P'][str(i)]['target_port']
+                if p in ports:
+                    pdups.append(p)
+                else:
+                    ports.append(p)
+            except KeyError:
+                ports.append('Indeterminate')
+                break
+
         f = {}
         f['dev'] = hdd
-        f['port'] = port
+        f['pts'] = ports
+        f['dup'] = pdups
         f['sno'] = serno
         brands[vdr][model][fware][ssd][mpxio]['devs'].append(f)
 
         if mpxio == "yes":
-            stat = disks[hdd]['P']['path_state']
-
             brands[vdr][model][fware][ssd][mpxio]['status'] = 'on'
             brands[vdr][model][fware][ssd][mpxio]['paths'] = pcnt
             if debug:
-                print 'mpxio', pcnt, port
+                print 'mpxio', pcnt, ports
 
-        else:   # mpxio disabled
+        else:       # mpxio disabled
             brands[vdr][model][fware][ssd][mpxio]['status'] = 'off'
             brands[vdr][model][fware][ssd][mpxio]['paths'] = 1
             if debug:
-                print port
+                print ports
 
         brands[vdr][model][fware][ssd][mpxio]['count'] += 1
 
@@ -958,11 +979,29 @@ def hddko():
                         s = brands[v][m][f][d][x]['status']
                         p = brands[v][m][f][d][x]['paths']
 
-                        pc, pl = targets(brands[v][m][f][d][x]['devs'])
-                        try:
-                            P = pl[0]
-                        except IndexError:
-                            P = ''
+                        #
+                        # check for duplicates and form new LoD => pl[{}, ...]
+                        #
+                        pl = []
+                        lod = brands[v][m][f][d][x]['devs']
+                        P = 'Indeterminate'
+                        pc = 'yellow'
+                        pd = 'lite'
+                        for hw in lod:
+                            for pt in hw['pts']:
+                                Z = {}
+                                if pt in hw['dup']:
+                                    P = pt
+                                    pc = 'red'
+                                    pd = 'bold'
+                                else:
+                                    P = pt
+                                    pc = 'white'
+                                    pd = 'lite'
+                                Z['port'] = P
+                                Z['colr'] = pc
+                                Z['disp'] = pd
+                                pl.append(Z)
 
                         if s == 'on':
                             sc = 'green'
@@ -975,20 +1014,24 @@ def hddko():
                         y = '%5s, %8s, %16s, %6s, %5s, %5s, %5s, %18s'
                         w = 'white, %s, %s, %s, %s, white, %s, %s' % \
                             (vc, mc, fc, sc, dc, pc)
-                        D = 'lite, %s, %s, %s, %s, lite, %s, lite' % \
-                            (vd, md, fd, sd, dd)
+                        D = 'lite, %s, %s, %s, %s, lite, %s, %s' % \
+                            (vd, md, fd, sd, dd, pd)
                         prfmt_mc_row(z, y, w, D)
 
-                        if len(pl) > 1:
-                            for prt in pl:
-                                if prt == P:
-                                    continue
-                                z = ' , , , , , , , %s' % prt
-                                y = '%5s, %8s, %16s, %6s, %5s, %5s, %5s, %33s'
-                                w = 'red, red, red, red, red, red, red, %s' % pc
-                                D = 'lite, lite, lite, lite, lite, lite, ' + \
-                                    'lite, lite'
-                                prfmt_mc_row(z, y, w, D)
+                        prt = ''
+                        for k in pl:
+                            prt = k['port']
+                            if prt == P:
+                                continue
+                            pc = k['colr']
+                            pd = k['disp']
+
+                            z = ' , , , , , , , %s' % prt
+                            y = '%5s, %8s, %16s, %6s, %5s, %5s, %5s, %33s'
+                            w = 'red, red, red, red, red, red, red, %s' % pc
+                            D = 'lite, lite, lite, lite, lite, lite, ' + \
+                                    'lite, %s' % pd
+                            prfmt_mc_row(z, y, w, D)
                         print
 
 
@@ -1839,7 +1882,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-08-21 12:59:00 +0600 (Fri, 21 Aug 2015) $"
+__last_updated__ = "$Date: 2015-08-25 12:54:00 +0600 (Tue, 25 Aug 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
