@@ -1039,20 +1039,20 @@ def hddko():
 # Networking
 #
 def print_net_hdr():
-    prfmt_mc_row('Network, State, Speed, Duplex',
-                    '%15s,  %13s,  %15s,   %16s',
-                   'white, white, white,  white',
-                    'bold,  bold,  bold,   bold')
+    prfmt_mc_row('Network, State,   MTU, Speed, Duplex',
+                    '%10s,  %13s,  %12s,  %13s,   %16s',
+                   'white, white, white, white,  white',
+                    'bold,  bold,  bold,  bold,   bold')
 
-    prfmt_mc_row('-------, -----, ------, -------',
-                    '%15s,  %13s,  %16s,   %16s',
-                   'white, white, white,  white',
-                    'bold,  bold,  bold,   bold')
+    prfmt_mc_row('-------, -----,  ----, -----, -------',
+                    '%10s,  %13s,  %12s,  %13s,    %16s',
+                   'white, white, white, white,   white',
+                    'bold,  bold,  bold,  bold,    bold')
 
 
 def network():
     global base
-    File = os.path.join(base, 'ingestor/json/dladm-show-phys.out.json')
+    File = os.path.join(base, 'ingestor/json/dladm-phys-link.out.json')
 
     if not os.path.exists(File):
         return
@@ -1064,23 +1064,26 @@ def network():
     print_net_hdr()
     for ic in nics:
         devname = nics[ic]['device']
-        duplex = nics[ic]['duplex']
+        dplx = nics[ic]['duplex']
         speed = nics[ic]['speed']
         state = nics[ic]['state']
+        mtu = nics[ic]['mtu']
 
         # state color
         stc = 'red' if state != 'up' else 'green'
         # speed color
         spc = 'red' if speed == '0' else 'green'
         # duplex color
-        dxc = 'red' if duplex != 'full' or state != 'up' else 'green'
+        dxc = 'red' if dplx != 'full' or state != 'up' else 'green'
         # nic color
         nmc = 'white' if state == 'up' else 'red'
+        # mtu color
+        mtc = 'red' if state != 'up' else 'green'
 
-        prfmt_mc_row('%s, %s, %s, %s' % (devname, state, speed, duplex),
-                    '%15s,  %13s,  %15s,  %16s',
-                    '%s, %s, %s, %s' % (nmc, stc, spc, dxc),
-                    'bold,  bold,  bold,   bold')
+        prfmt_mc_row('%s, %s, %s, %s, %s' % (devname, state, mtu, speed, dplx),
+                    '%10s,  %13s,  %12s, %13s, %15s',
+                    '%s, %s, %s, %s, %s' % (nmc, stc, mtc, spc, dxc),
+                    'bold,  bold,  bold,  bold,  bold')
 
 
 #
@@ -1882,7 +1885,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-08-25 12:54:00 +0600 (Tue, 25 Aug 2015) $"
+__last_updated__ = "$Date: 2015-08-25 16:56:00 +0600 (Tue, 25 Aug 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"

@@ -985,21 +985,7 @@ def zfs_arc_mdb_json(bdir):
     json_save(bdir, jsdmp, jsout)
 
 
-def dladm_show_phys_json(bdir):
-    fname = os.path.join(bdir, 'network/dladm-show-phys')
-    rtfile = fname + '.out'
-    jsout = rtfile + '.json'
-    stfile = fname + '.stats'
-
-    if not valid_collector_output(fname):
-        return
-
-    jsdct = dladm_show_phys_jsp(rtfile)
-    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
-    json_save(bdir, jsdmp, jsout)
-
-
-def dladm_show_phys_jsp(fname):
+def dladm_show_jsp(fname):
     hdrs = []
     for e in read_raw_txt(fname)[0].split():
         pattern = '[A-Z-_@]+'
@@ -1016,19 +1002,70 @@ def dladm_show_phys_jsp(fname):
         if mp:
             data.append(mp.group(0).lower())
 
-    idx = 1
     json_data = {}
     for d in data:
         val = d.split()
-        key = 'NIC-' + str(idx)
 
         new = {}
         for i in xrange(0, len(hdrs)):
             new[hdrs[i]] = val[i]
-        idx += 1
+            if hdrs[i] == 'link':
+                key = val[i]
         json_data[key] = new
 
     return json_data
+
+
+def dladm_show_phys_json(bdir):
+    fname = os.path.join(bdir, 'network/dladm-show-phys')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+
+    if not valid_collector_output(fname):
+        return
+
+    jsdct = dladm_show_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+    dladm_show_link_json(bdir, jsdct)
+
+
+def merge_mtu_info(bdir, mtud, nwid):
+    fname = os.path.join(bdir, 'dladm-phys-link')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+
+    newd = {}
+    keys = ['device', 'duplex', 'link', 'media', 'speed', 'state', 'mtu']
+    for i in nwid:
+        if i not in newd:
+            newd[i] = {}
+        for k in keys:
+            if k == 'mtu':
+                newd[i][k] = mtud[i][k]
+            else:
+                newd[i][k] = nwid[i][k]
+
+    jsdmp = json.dumps(newd, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def dladm_show_link_json(bdir, nwid):
+    fname = os.path.join(bdir, 'network/dladm-show-link')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+
+    if not valid_collector_output(fname):
+        return
+
+    jsdct = dladm_show_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+    merge_mtu_info(bdir, jsdct, nwid)
 
 
 def sharectl_getsmb_jsp(fname):
@@ -2184,6 +2221,8 @@ def main(bundle_dir):
                 'itadm_list_target',    \
                 'for_lu_in_stmfadm']
 
+    convnames = ['dladm_show_phys']
+
     convfuncs = {'aptsrc_json':             aptsrc_json,
                 'nmchkpt_json':             nmchkpt_json,
                 'hddisco_json':             hddisco_json,
@@ -2246,7 +2285,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2015-08-06 16:30:00 +0600 (Thr, 06 Aug 2015) $"
+__last_updated__ = "$Date: 2015-08-25 16:31:00 +0600 (Tue, 25 Aug 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
