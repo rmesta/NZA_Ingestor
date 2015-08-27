@@ -787,38 +787,15 @@ def jbods():
 # hddisco Info
 #
 def print_hddko_hdr():
-    prfmt_mc_row('cnt, vendor, model, F/W, mpxio, pcnt, SSD, Target Port(s)',
-                 '%5s,    %8s,  %16s, %5s,   %7s,  %5s, %4s,           %16s',
-                 'white, white, white, white, white, white, white, white',
-                 'bold,   bold,  bold, bold,   bold,  bold,  bold, bold')
+    prfmt_mc_row('cnt,  vendor, model,   F/W, mpxio,  pcnt,   SSD',
+                 '%5s,     %9s,  %17s,   %9s,  %11s,   %6s,   %5s',
+                 'white, white, white, white, white, white, white',
+                 'bold,   bold,  bold,  bold,  bold,  bold,  bold')
 
-    l = '---, ------, -------------, -----, -----, ----, ---, -----------------'
-    prfmt_mc_row(l,
-                 '%5s,     %8s,  %16s,   %6s,   %5s,   %5s,   %4s,  %18s',
-                 'white, white, white, white, white, white, white, white',
-                 'bold,   bold,  bold,  bold,  bold,  bold,  bold,  bold')
-
-
-def targets(lod):
-
-    #
-    # figure out if a port is used more than once
-    #
-    S = []
-    retcol = 'white'
-    for Dict in lod:       # for each dictionary in list
-        for k in Dict.keys():    # for each key in said dictionary
-            if k == 'pts':
-                port = Dict[k]
-                if port not in S:
-                    S.append(port)
-                    if port == 'Indeterminate':
-                        return 'yellow', S
-                else:
-                    Dup.append(port)  # Add the offending port
-                    return 'red', S
-
-    return retcol, S
+    prfmt_mc_row('---, -------, ---------------, -----, -----, ----, ---',
+                 '%5s,     %9s,  %17s,  %10s,   %9s,   %6s,   %5s',
+                 'white, white, white, white, white, white, white',
+                 'bold,   bold,  bold,  bold,  bold,  bold,  bold')
 
 
 def hdd_json_params(hdko):
@@ -915,8 +892,7 @@ def hddko():
                 else:
                     ports.append(p)
             except KeyError:
-                ports.append('Indeterminate')
-                break
+                continue
 
         f = {}
         f['dev'] = hdd
@@ -984,55 +960,46 @@ def hddko():
                         #
                         pl = []
                         lod = brands[v][m][f][d][x]['devs']
-                        P = 'Indeterminate'
-                        pc = 'yellow'
-                        pd = 'lite'
                         for hw in lod:
                             for pt in hw['pts']:
                                 Z = {}
                                 if pt in hw['dup']:
-                                    P = pt
-                                    pc = 'red'
-                                    pd = 'bold'
-                                else:
-                                    P = pt
-                                    pc = 'white'
-                                    pd = 'lite'
-                                Z['port'] = P
-                                Z['colr'] = pc
-                                Z['disp'] = pd
-                                pl.append(Z)
+                                    Z['port'] = pt
+                                    Z['snum'] = hw['sno']
+                                    Z['disk'] = hw['dev']
+                                    pl.append(Z)
 
-                        if s == 'on':
-                            sc = 'green'
-                            sd = 'bold'
-                        else:
-                            sc = 'yellow'
-                            sd = 'lite'
-                        z = '%s, %s, %s, %s, %s, %s, %s, %s' % \
-                            (c,   v,  m,  f,  s,  p,  d,  P)
-                        y = '%5s, %8s, %16s, %6s, %5s, %5s, %5s, %18s'
-                        w = 'white, %s, %s, %s, %s, white, %s, %s' % \
-                            (vc, mc, fc, sc, dc, pc)
-                        D = 'lite, %s, %s, %s, %s, lite, %s, %s' % \
-                            (vd, md, fd, sd, dd, pd)
+                        sc = 'green' if s == 'on' else 'yellow'
+                        sd = 'bold' if s == 'on' else 'lite'
+
+                        #
+                        # print hdd aggregate info
+                        #
+                        z = '%s, %s, %s, %s, %s, %s, %s' % \
+                            (c,   v,  m,  f,  s,  p,  d)
+                        y = '%5s, %9s, %17s, %10s, %9s, %6s, %6s'
+                        w = 'white, %s, %s, %s, %s, white, %s' % \
+                            (vc, mc, fc, sc, dc)
+                        D = 'lite, %s, %s, %s, %s, lite, %s' % \
+                            (vd, md, fd, sd, dd)
                         prfmt_mc_row(z, y, w, D)
 
-                        prt = ''
-                        for k in pl:
-                            prt = k['port']
-                            if prt == P:
-                                continue
-                            pc = k['colr']
-                            pd = k['disp']
+                        #
+                        # print hdd's that have any dupped WWN's
+                        #
+                        if len(pl) > 0:
+                            for k in pl:
+                                dk = k['disk']
+                                sn = k['snum']
+                                pt = k['port']
 
-                            z = ' , , , , , , , %s' % prt
-                            y = '%5s, %8s, %16s, %6s, %5s, %5s, %5s, %33s'
-                            w = 'red, red, red, red, red, red, red, %s' % pc
-                            D = 'lite, lite, lite, lite, lite, lite, ' + \
-                                    'lite, %s' % pd
-                            prfmt_mc_row(z, y, w, D)
-                        print
+                                z = 'Dev:, %s, SN:, %s, Port:, %s' %\
+                                    (dk, sn, pt)
+                                y = ' %5s, %21s,  %4s, %20s,  %6s, %17s'
+                                w = 'gray,  red, gray,  red, gray,  red'
+                                D = 'bold, lite, bold, lite, bold, bold'
+                                prfmt_mc_row(z, y, w, D)
+                            print
 
 
 #
@@ -1078,7 +1045,10 @@ def network():
         # nic color
         nmc = 'white' if state == 'up' else 'red'
         # mtu color
-        mtc = 'red' if state != 'up' else 'green'
+        if state != 'up':
+            mtc = 'red'
+        else:
+            mtc = 'yellow' if int(mtu) > 9000 else 'green'
 
         prfmt_mc_row('%s, %s, %s, %s, %s' % (devname, state, mtu, speed, dplx),
                     '%10s,  %13s,  %12s, %13s, %15s',
@@ -1102,8 +1072,11 @@ def nms_faults():
 
     for section in json_data:
         if section.startswith('fault'):
-            sev = json_data[section]['severity']
-            trig = json_data[section]['trigger']
+            try:
+                sev = json_data[section]['severity']
+                trig = json_data[section]['trigger']
+            except KeyError:
+                continue
 
             if sev == 'NOTICE':
                 print_warn(sev + ' ' + trig, True)
@@ -1885,7 +1858,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-08-25 16:56:00 +0600 (Tue, 25 Aug 2015) $"
+__last_updated__ = "$Date: 2015-08-27 11:31:00 +0600 (Thr, 27 Aug 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
