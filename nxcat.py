@@ -455,7 +455,11 @@ def print_devices(pool):
 
             vDv = get_vdev(pool, v)
             for vc in vDv:
-                vds = vDv[vc]['state']
+                try:
+                    vds = vDv[vc]['state']
+                except KeyError:
+                    continue
+
                 if vds == 'ONLINE':
                     dok += 1                    # Number of ONLINE devices
                 else:
@@ -525,31 +529,36 @@ def print_devices(pool):
                 vdev = pname['vdev']
 
             for vd in vdev:
-                if vdev[vd]['state'] == 'ONLINE':
-                    slot_xref('\t\t', vd, 'green')
+                try:
+                    if vdev[vd]['state'] == 'ONLINE':
+                        slot_xref('\t\t', vd, 'green')
 
-                else:
-                    try:
-                        pdevs = vdev[vd]['vdev']    # raidz2 devices
+                    else:
+                        try:
+                            pdevs = vdev[vd]['vdev']    # raidz2 devices
 
-                        for fds in pdevs:
-                            vds = vdev[vd]['vdev'][fds]['state']
+                            for fds in pdevs:
+                                vds = vdev[vd]['vdev'][fds]['state']
+                                if vds == 'FAULTED' or vds == 'DEGRADED':
+                                    slot_xref('\t\t\t', fds, 'red')
+                                    print_fail('\t\t\t\t' + '<< ' + \
+                                        vdev[vd]['vdev'][fds]['info'] + ' >>')
+                                else:
+                                    slot_xref('\t\t\t', fds, 'green')
+
+                        except KeyError:                # mirror devices
+
+                            vds = vdev[vd]['state']
                             if vds == 'FAULTED' or vds == 'DEGRADED':
-                                slot_xref('\t\t\t', fds, 'red')
-                                print_fail('\t\t\t\t' + '<< ' + \
-                                    vdev[vd]['vdev'][fds]['info'] + ' >>')
+                                slot_xref('\t\t', vd, 'red')
+                                print_fail('\t\t\t' + \
+                                    '<< ' + vdev[vd]['info'] + ' >>')
                             else:
-                                slot_xref('\t\t\t', fds, 'green')
+                                slot_xref('\t\t\t', vd, 'green')
 
-                    except KeyError:                # mirror devices
+                except KeyError:
+                    continue
 
-                        vds = vdev[vd]['state']
-                        if vds == 'FAULTED' or vds == 'DEGRADED':
-                            slot_xref('\t\t', vd, 'red')
-                            print_fail('\t\t\t' + \
-                                '<< ' + vdev[vd]['info'] + ' >>')
-                        else:
-                            slot_xref('\t\t\t', vd, 'green')
     return
 
 
@@ -1266,6 +1275,9 @@ def sac_results():
         if f.endswith('json'):
             jfiles.append(f)
 
+    if len(jfiles) == 0:
+        return
+
     json_files = sorted(jfiles)
     File = os.path.join(Dir, json_files[-1])    # newest json file
     try:
@@ -1282,14 +1294,28 @@ def sac_results():
         print '\t', c.bold_white + r + c.reset, '\t',
 
         expt = ''
-        if 'exception' in sacres['results'][r]:
-            if sacres['results'][r]['exception'] == False:
-                expt = False
-            else:
-                prfmt_bold('FAIL', '%27s', 'red', True)
-                msg = sacres['results'][r]['exception_str']
-                print_fail('\t\t\t' + msg)
-                continue
+        try:
+            if 'exception' in sacres['results'][r]:
+                if sacres['results'][r]['exception'] == False:
+                    expt = False
+                else:
+                    s = '%19s' if r == 'check_rsf_failover_from' else '%27s'
+                    prfmt_bold('FAIL', s, 'red', True)
+                    msg = sacres['results'][r]['exception_str']
+                    print_fail('\t\t\t' + msg)
+                    continue
+        except TypeError:
+            l = len(r)
+            if r == 'check_domain_ping':
+                x = 45
+            elif r == 'check_rsf_failover_to':
+                x = 49
+            elif r == 'check_rsf_failover_from':
+                x = 43
+            n = x - l
+            s = '%' + '%d' % n + 's'
+            prfmt_bold('No Data', s, 'yellow', True)
+            continue
 
         if 'status' in sacres['results'][r]:
             if sacres['results'][r]['status'] == True:
@@ -1858,7 +1884,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-08-27 11:31:00 +0600 (Thr, 27 Aug 2015) $"
+__last_updated__ = "$Date: 2015-09-01 17:00:00 +0600 (Tue, 01 Sep 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"

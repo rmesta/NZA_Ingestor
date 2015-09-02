@@ -2221,8 +2221,6 @@ def main(bundle_dir):
                 'itadm_list_target',    \
                 'for_lu_in_stmfadm']
 
-    convnames = ['dladm_show_phys']
-
     convfuncs = {'aptsrc_json':             aptsrc_json,
                 'nmchkpt_json':             nmchkpt_json,
                 'hddisco_json':             hddisco_json,
@@ -2285,7 +2283,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2015-08-25 16:31:00 +0600 (Tue, 25 Aug 2015) $"
+__last_updated__ = "$Date: 2015-09-01 09:06:00 +0600 (Tue, 01 Sep 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
