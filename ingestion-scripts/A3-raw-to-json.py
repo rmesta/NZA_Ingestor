@@ -278,9 +278,15 @@ def process_vendor(l):
         try:
             V, v, P, X, Y, y, R, r, S, s, no =  \
                 [x.strip(':').lower() for x in lst]
+            p = X + ' ' + Y
         except ValueError:
-            print "process_vendor: product in multiple strings"
-        p = X + ' ' + Y
+            try:
+                V, v, P, p, R, r, S, s, Z, z =  \
+                    [x.strip(':').lower() for x in lst]
+                no = None
+            except ValueError:
+                print "process_vendor: Cannot decode vendor string"
+                return None
 
     kvp[V] = v      # Vendor
     kvp[P] = p      # Product
@@ -407,7 +413,10 @@ def iostat_jsp(fname):
                 if Debug:
                     print 'vdrprodrev: ', vdrprodrev
                 for k in sorted(vdrprodrev.keys()):
-                    iostat[devid][k] = vdrprodrev[k]
+                    try:
+                        iostat[devid][k] = vdrprodrev[k]
+                    except UnboundLocalError:
+                        break
 
         # Parse Size Info
         elif line.startswith('S'):
@@ -418,7 +427,10 @@ def iostat_jsp(fname):
                 continue
             if Debug:
                 print Sz, sz
-            iostat[devid][Sz.lower()] = sz.lower()
+            try:
+                iostat[devid][Sz.lower()] = sz.lower()
+            except UnboundLocalError:
+                continue
 
         # Parse Media Error, Device Readiness, etc.
         elif line.startswith('Media'):
@@ -426,7 +438,10 @@ def iostat_jsp(fname):
             if Debug:
                 print 'medredss: ', medredss
             for k in sorted(medredss.keys()):
-                iostat[devid][k] = medredss[k]
+                try:
+                    iostat[devid][k] = medredss[k]
+                except UnboundLocalError:
+                    break
 
         # Parse Illegal Request, Predictive Failure Analysis.
         elif line.startswith('Illegal'):
@@ -437,8 +452,10 @@ def iostat_jsp(fname):
                 if Debug:
                     print 'irqst_pfa: ', irqst_pfa
                 for k in sorted(irqst_pfa.keys()):
-                    iostat[devid][k] = irqst_pfa[k]
-
+                    try:
+                        iostat[devid][k] = irqst_pfa[k]
+                    except UnboundLocalError:
+                        break
     return iostat
 
 
@@ -985,7 +1002,7 @@ def zfs_arc_mdb_json(bdir):
     json_save(bdir, jsdmp, jsout)
 
 
-def dladm_show_jsp(fname):
+def dladm_show_phys_jsp(fname):
     hdrs = []
     for e in read_raw_txt(fname)[0].split():
         pattern = '[A-Z-_@]+'
@@ -1025,7 +1042,7 @@ def dladm_show_phys_json(bdir):
     if not valid_collector_output(fname):
         return
 
-    jsdct = dladm_show_jsp(rtfile)
+    jsdct = dladm_show_phys_jsp(rtfile)
     jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
     json_save(bdir, jsdmp, jsout)
 
@@ -1052,6 +1069,31 @@ def merge_mtu_info(bdir, mtud, nwid):
     json_save(bdir, jsdmp, jsout)
 
 
+def dladm_show_link_jsp(fname):
+    hdrs = []
+    for e in read_raw_txt(fname)[0].split():
+        pattern = '[A-Z-_@]+'
+        mp = re.match(pattern, e)
+        if mp:
+            hdrs.append(mp.group(0).lower())
+
+    json_data = {}
+    for line in read_raw_txt(fname):
+        if line.startswith('LINK'):
+            continue
+        #          link           class    mtu    state   brdge   over
+        patt = '^([a-zA-Z0-9]+)\s+(\w+)\s+(\d+)\s+(\w+)\s+(\S+)\s+(.*)$'
+        mp = re.match(patt, line)
+        if mp:
+            new = {}
+            lnk = mp.group(1)
+            for i in xrange(0, len(hdrs)):
+                new[hdrs[i]] = mp.group(i+1)
+            json_data[lnk] = new
+
+    return json_data
+
+
 def dladm_show_link_json(bdir, nwid):
     fname = os.path.join(bdir, 'network/dladm-show-link')
     rtfile = fname + '.out'
@@ -1061,11 +1103,170 @@ def dladm_show_link_json(bdir, nwid):
     if not valid_collector_output(fname):
         return
 
-    jsdct = dladm_show_jsp(rtfile)
+    jsdct = dladm_show_link_jsp(rtfile)
     jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
     json_save(bdir, jsdmp, jsout)
 
     merge_mtu_info(bdir, jsdct, nwid)
+
+
+def hex_to_ddec(hs):
+    hl = len(hs)
+    l = 0
+    nm = ''
+
+    while l < hl:
+        s = ''
+        s = hs[l:l+2]
+        nm += str(int(s, 16))
+        l += 2
+        if l < hl:
+            nm += '.'
+
+    return nm
+
+
+def ifconfig_jsp(fname):
+    json_data = {}
+    for line in read_raw_txt(fname):
+        #patt = '^([a-zA-Z0-9]+):\s+.*$'
+        patt = '^([a-zA-Z0-9]+):\s+flags=\d+<(\S+)>\s+.*$'
+        mp = re.match(patt, line)
+        if mp:
+            nic = mp.group(1)
+            new = {}
+            new['link'] = nic
+            flags = mp.group(2).split(',')
+            for f in flags:
+                if f.lower() == 'ipmp':
+                    new['ipmp'] = 'yes'
+                else:
+                    new['ipmp'] = 'no'
+            continue
+
+        patt = '^\s+inet\s+(\d+\.\d+\.\d+\.\d+)\s+netmask\s+(\S+).*$'
+        mp = re.match(patt, line)
+        if mp:
+            inet = mp.group(1)
+            new['inet'] = inet
+            new['mask'] = hex_to_ddec(mp.group(2))
+            continue
+
+        patt = '^\s+groupname\s+([a-zA-Z0-9-]+).*$'
+        mp = re.match(patt, line)
+        if mp:
+            ipmp = mp.group(1)
+            new['group'] = ipmp
+
+        json_data[nic] = new
+
+    return json_data
+
+
+def ifconfig_json(bdir):
+    fname = os.path.join(bdir, 'network/ifconfig-a')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+
+    if not valid_collector_output(fname):
+        return
+
+    jsdct = ifconfig_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def merge_link_cfg(phd, lkd, cfd):
+    netinfo = {}
+    for i in lkd:
+        try:
+            x = cfd[i]
+            netinfo[i] = {}
+            a,b,c,d = x['inet'].split('.')
+            if a == '0' and b == '0' and c == '0' and d == '0':
+                if 'group' in x:
+                    g = x['group']
+                    for n in cfd:
+                        if n == g:
+                            netinfo[i]['cfg'] = cfd[n]
+                            netinfo[i]['lnk'] = lkd[i]
+
+                            cls = lkd[i]['class']
+                            ovr = lkd[i]['over']
+                            lnk = lkd[i]['link']
+                            if lnk == i and cls == 'phys' and ovr == '--':
+                                if 'phs' not in netinfo[i]:
+                                    netinfo[i]['phs'] = {}
+                                netinfo[i]['phs'][i] = phd[i]
+                                continue
+
+                            for y in lkd[i]['over'].split():
+                                if y == '--':
+                                    continue
+                                if lkd[y]['class'] == 'phys':
+                                    if 'phs' not in netinfo[i]:
+                                        netinfo[i]['phs'] = {}
+                                    netinfo[i]['phs'][y] = phd[y]
+                else:
+                    netinfo[i]['lnk'] = lkd[i]
+
+                    cls = lkd[i]['class']
+                    ovr = lkd[i]['over']
+                    lnk = lkd[i]['link']
+                    if lnk == i and cls == 'phys' and ovr == '--':
+                        if 'phs' not in netinfo[i]:
+                            netinfo[i]['phs'] = {}
+                        netinfo[i]['phs'][i] = phd[i]
+                        continue
+
+                    for w in lkd[i]['over'].split():
+                        if w == '--':
+                            continue
+                        if 'phs' not in netinfo[i]:
+                            netinfo[i]['phs'] = {}
+                        netinfo[i]['phs'][w] = phd[w]
+                continue
+            netinfo[i]['cfg'] = cfd[i]
+            netinfo[i]['lnk'] = lkd[i]
+            for z in lkd[i]['over'].split():
+                if z == '--' or lkd[z]['class'] == 'phys':
+                    if 'phs' not in netinfo[i]:
+                        netinfo[i]['phs'] = {}
+                if z == '--':
+                    netinfo[i]['phs'][i] = phd[i]
+                elif lkd[z]['class'] == 'phys':
+                    netinfo[i]['phs'][z] = phd[z]
+        except KeyError:
+            pass
+
+    return netinfo
+
+
+def network_json(bdir):
+    fname = os.path.join(bdir, 'network/dladm-show-phys')
+    rtfile = fname + '.out'
+
+    if not valid_collector_output(fname):
+        return
+    physd = dladm_show_phys_jsp(rtfile)
+
+    fname = os.path.join(bdir, 'network/dladm-show-link')
+    rtfile = fname + '.out'
+    if not valid_collector_output(fname):
+        return
+    linkd = dladm_show_link_jsp(rtfile)
+
+    fname = os.path.join(bdir, 'network/ifconfig-a')
+    rtfile = fname + '.out'
+    if not valid_collector_output(fname):
+        return
+    ifcfgd = ifconfig_jsp(rtfile)
+
+    nwinfo = merge_link_cfg(physd, linkd, ifcfgd)
+    jsdmp = json.dumps(nwinfo, indent=2, separators=(',', ': '), sort_keys=True)
+    jsout = os.path.join(bdir, 'network-info') + '.out.json'
+    json_save(bdir, jsdmp, jsout)
 
 
 def sharectl_getsmb_jsp(fname):
@@ -2217,6 +2418,8 @@ def main(bundle_dir):
                 'lun_smartstat',        \
                 'lun_slotmap',          \
                 'dladm_show_phys',      \
+                'ifconfig',             \
+                'network',              \
                 'itadm_list_tpg',       \
                 'itadm_list_target',    \
                 'for_lu_in_stmfadm']
@@ -2236,6 +2439,8 @@ def main(bundle_dir):
                 'zfsgtall_json':            zfsgtall_json,
                 'zfs_arc_mdb_json':         zfs_arc_mdb_json,
                 'dladm_show_phys_json':     dladm_show_phys_json,
+                'network_json':             network_json,
+                'ifconfig_json':            ifconfig_json,
                 'kdumps_json':              kdumps_json,
                 'sharectl_smb_json':        sharectl_getsmb_json,
                 'uptime_json':              uptime_json,
@@ -2283,7 +2488,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2015-09-01 09:06:00 +0600 (Tue, 01 Sep 2015) $"
+__last_updated__ = "$Date: 2015-10-14 16:52:00 +0600 (Wed, 14 Oct 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"

@@ -20,6 +20,7 @@ import errno
 import gzip
 from pprint import pprint
 from lib.CText import *
+from netaddr import *
 
 
 _ver = '1.0.0'
@@ -1014,55 +1015,531 @@ def hddko():
 #
 # Networking
 #
-def print_net_hdr():
-    prfmt_mc_row('Network, State,   MTU, Speed, Duplex',
-                    '%10s,  %13s,  %12s,  %13s,   %16s',
-                   'white, white, white, white,  white',
-                    'bold,  bold,  bold,  bold,   bold')
-
-    prfmt_mc_row('-------, -----,  ----, -----, -------',
-                    '%10s,  %13s,  %12s,  %13s,    %16s',
-                   'white, white, white, white,   white',
-                    'bold,  bold,  bold,  bold,    bold')
-
 
 def network():
+    net_config()
+    net_rehash()
+    lnk_config()
+    phs_config()
+    print_net()
+
+
+def print_nw_hdr():
+    prfmt_mc_row('Link, Class, State, MTU, Speed, Duplex, IPv4, Mask',
+                 '%6s,  %11s,   %6s,  %4s, %6s,   %7s,    %10s,  %15s',
+                 'white, white, white, white, white, white, white, white',
+                 'bold,  bold,  bold,  bold,  bold,  bold,  bold,  bold')
+    prfmt_bold('---------', '%9s', 'white', False)
+    prfmt_bold('-----',     '%8s', 'white', False)
+    prfmt_bold('-----',     '%6s', 'white', False)
+    prfmt_bold('---',       '%4s', 'white', False)
+    prfmt_bold('-----',     '%6s', 'white', False)
+    prfmt_bold('------',    '%7s', 'white', False)
+    prfmt_bold('--------', '%12s', 'white', False)
+    prfmt_bold('--------', '%15s', 'white', True)
+
+
+def str_adj(stg, w):
+    l = len(stg)
+    s = w - l
+    n = stg + s*' '
+
+    return n
+
+
+def fmt_ipmp_dev(dev, ipa, msk):
+    global SNInfo
+
+    n = str_adj(dev, 10)
+    prfmt_bold(n, '%10s', 'blue', False)
+
+    if len(dev) >= 11:
+        ipfmt = '%47s'
+        mkfmt = '%17s'
+    else:
+        ipfmt = '%49s'
+        mkfmt = '%15s'
+
+    # CIDR
+    ipnet = '%s/%s' % (ipa, msk)
+    IP = IPNetwork(ipnet)
+    cidr = '%s' % IP.cidr
+    if SNInfo[cidr]['conflict'] == True:
+        ipcol = mkcol = 'red'
+        ipfnt = mkfnt = 'bold'
+    else:
+        ipcol = mkcol = SNInfo[cidr]['color']
+        ipfnt = mkfnt = 'lite'
+
+    fields = '%s, %s' % (ipa, msk)
+    fmt = '%s, %s' % (ipfmt, mkfmt)
+    colors = '%s, %s' % (ipcol, mkcol)
+    fonts = '%s, %s' % (ipfnt, mkfnt)
+
+    return fields, fmt, colors, fonts
+
+
+def fmt_aggr_dev(dev, cls, stt, mtu, col):
+
+    # Interface color
+    disp = 'bold' if cls == 'vlan' else 'lite'
+    if stt == 'up':
+        if col == 'gray':
+            scol = col
+            disp = 'lite'
+        else:
+            scol = 'green'
+    else:
+        scol = 'red'
+        disp = 'bold'
+
+    # MTU color
+    if mtu >= '9000':
+        if col == 'white':
+            mcol = 'green'
+            mdsp = 'bold'
+        else:
+            mcol = col
+            mdsp = 'lite'
+    else:
+        mcol = 'green'
+        mdsp = 'lite'
+
+    n = str_adj(dev, 10)
+    fields = '%s, %s, %s, %s' % (n, cls, stt, mtu)
+    fmt = '%10s, %7s, %4s, %6s'
+    colors = '%s, %s, %s, %s' % (col, col, scol, mcol)
+    fonts = 'lite, lite, %s,  %s' % (disp, mdsp)
+
+    return fields, fmt, colors, fonts
+
+
+vlnk = {}
+def fmt_phys_dev(lnk, dev, cls, stt, mtu, spd, dup):
+    if lnk not in vlnk:
+        vlnk[lnk] = {}
+    if 'mtu' not in vlnk[lnk]:
+        vlnk[lnk]['mtu'] = mtu
+    if 'spd' not in vlnk[lnk]:
+        vlnk[lnk]['spd'] = spd
+
+    if vlnk[lnk]['mtu'] != mtu:
+        mtc = 'yellow'
+        mtf = 'bold'
+    else:
+        mtc = 'gray'
+        mtf = 'lite'
+
+    if vlnk[lnk]['spd'] != spd or spd == '0':
+        spc = 'yellow'
+        spf = 'bold'
+    else:
+        spc = 'green' if spd >= '10000' else 'gray'
+        spf = 'lite'
+
+    dupw = 6
+    if dup != 'full':
+        dpcl = 'red'
+        dpdp = 'bold'
+    else:
+        dpcl = 'gray'
+        dpdp = 'lite'
+
+    if stt == 'down':
+        stwd = 2 + len(stt) - 1
+        mtuw = 5
+        stcl = 'red'
+        stdp = 'bold'
+    elif stt == 'unknown':
+        stwd = len(stt) - 1
+        mtuw = 3
+        stcl = 'red'
+        stdp = 'lite'
+        dupw = 5
+    else:
+        stwd = 2 + len(stt)
+        mtuw = 6
+        stcl = 'gray'
+        stdp = 'lite'
+
+    mts = '%'+str(mtuw)+'s'
+    sts = '%'+str(stwd)+'s'
+    dps = '%'+str(dupw)+'s'
+
+    fields = '%s, %s, %s, %s, %s, %s' % (dev, cls, stt, mtu, spd, dup)
+    fmt = '%s, %s, %s, %s, %s, %s' % ('%11s', '%6s', sts, mts, '%6s', dps)
+    colors = 'gray, gray, %s, %s, %s, %s' % (stcl, mtc, spc, dpcl)
+    fonts = 'bold, lite, %s, %s, %s, %s' % (stdp, mtf, spf, dpdp)
+
+    return fields, fmt, colors, fonts
+
+
+netproc = {}
+def print_phys_devs(l, k):
+    global NetLink
+    global NetPhys
+    ni = NetInfo
+
+    devs = 0
+    for c in ni[l][k]['lnk']['over'].split():
+        if c == '--':
+            continue
+        devs += 1
+
+    for i in ni[l][k]['lnk']['over'].split():
+        if i == '--':
+            print
+            return
+        cls = NetLink[i]['class']
+        lnk = ni[l][k]['lnk']['link']
+        stt = ni[l][k]['lnk']['state']
+        mtu = ni[l][k]['lnk']['mtu']
+
+        if 'phs' in ni[l][k]:
+            if i in ni[l][k]['phs']:
+                spd = ni[l][k]['phs'][i]['speed']
+                dup = ni[l][k]['phs'][i]['duplex']
+
+                if k not in netproc:
+                    netproc[k] = {}
+                    netproc[k]['done'] = False
+
+                if netproc[k]['done']:
+                    continue
+
+                flds, fmt, cols, fnts = \
+                    fmt_phys_dev(l, i, cls, stt, mtu, spd, dup)
+                prfmt_mc_row(flds, fmt, cols, fnts)
+
+                devs -= 1
+                if devs == 0:
+                    netproc[k]['done'] = True
+        else:
+            flds, fmt, cols, fnts = fmt_aggr_dev(i, cls, stt, mtu, 'white')
+            prfmt_mc_row(flds, fmt, cols, fnts)
+
+            if i not in netproc:
+                netproc[i] = {}
+                netproc[i]['done'] = False
+
+            if cls != 'phys':
+                if not netproc[i]['done']:
+                    for d in NetLink[i]['over'].split():
+                        nld = NetLink[d]
+                        cls = nld['class']
+                        stt = nld['state']
+                        mtu = nld['mtu']
+
+                        pdv = NetPhys[d]
+                        spd = pdv['speed']
+                        dup = pdv['duplex']
+
+                        flds, fmt, cols, fnts = \
+                            fmt_phys_dev(l, d, cls, stt, mtu, spd, dup)
+                        prfmt_mc_row(flds, fmt, cols, fnts)
+
+                netproc[i]['done'] = True
+    print
+
+
+def fmt_link_dev(lnk, cls, stt, mtu, ipa, msk):
+    global SNInfo
+
+    # MTU color
+    if mtu >= '9000':
+        mcol = 'green'
+        mdsp = 'bold'
+    elif mtu >= '1500':
+        mcol = 'green'
+        mdsp = 'lite'
+    else:
+        mcol = 'red'
+        mdsp = 'bold'
+
+    if stt == 'down':
+        stwd = 2 + len(stt) - 1
+        mtuw = 5
+        stcl = 'red'
+        stdp = 'bold'
+    elif stt == 'unknown':
+        stwd = len(stt) - 1
+        mtuw = 3
+        stcl = 'red'
+        stdp = 'bold'
+    else:
+        stwd = 2 + len(stt)
+        mtuw = 6
+        stcl = 'green'
+        stdp = 'bold'
+
+    # CIDR
+    ipnet = '%s/%s' % (ipa, msk)
+    IP = IPNetwork(ipnet)
+    cidr = '%s' % IP.cidr
+    if SNInfo[cidr]['conflict'] == True:
+        ipcol = mkcol = 'red'
+        ipfnt = mkfnt = 'bold'
+    else:
+        ipcol = mkcol = SNInfo[cidr]['color']
+        ipfnt = mkfnt = 'lite'
+
+    mts = '%'+str(mtuw)+'s'
+    sts = '%'+str(stwd)+'s'
+
+    n = str_adj(lnk, 10)
+    prfmt_bold(n, '%10s', 'blue', False)
+
+    clstr = '%6s' if len(lnk) >= 11 else '%7s'
+    fields = '%s, %s, %s, %s, %s' % (cls, stt, mtu, ipa, msk)
+    colors = 'white, %s, %s, %s, %s' % (stcl, mcol, ipcol, mkcol)
+    fonts = 'lite, bold, %s, %s, %s' % (mdsp, ipfnt, mkfnt)
+
+    if cls == 'vlan':
+        mks = '%14s'
+
+    elif cls == 'aggr':
+        mks = '%15s'
+    else:
+        mks = '%15s' if len(lnk) >= 11 else '%14s'
+
+    fmt = '%s, %s, %s, %s, %s' % (clstr, sts, mts, '%30s', mks)
+
+    return fields, fmt, colors, fonts
+
+
+def print_net():
+    global NetPhys
+    ni = NetInfo
+
+    print_nw_hdr()
+    for l in sorted(ni):
+
+        if 'ip' in ni[l]:
+            ipa = ni[l]['ip']['inet']
+            msk = ni[l]['ip']['mask']
+            cid = ni[l]['ip']['cidr']
+
+        done = False
+        devs = 0
+        for c in ni[l]:
+            if c == 'ip':
+                continue
+            devs += 1
+
+        for k in sorted(ni[l]):
+            if k == 'ip':
+                continue
+
+            lnk = ni[l][k]['lnk']['link']
+            cls = ni[l][k]['lnk']['class']
+            stt = ni[l][k]['lnk']['state']
+            mtu = ni[l][k]['lnk']['mtu']
+
+            if k == l:
+                fds, fmt, col, fnt = fmt_link_dev(lnk, cls, stt, mtu, ipa, msk)
+
+                if cls == 'phys':
+                    prfmt_mc_row(fds, fmt, col, fnt)
+
+                    spd = NetPhys[l]['speed']
+                    dup = NetPhys[l]['duplex']
+
+                    fds, fmt, col, fnt =    \
+                        fmt_phys_dev(k, l, cls, stt, mtu, spd, dup)
+            else:
+                if not done:
+                    fds, fmt, col, fnt = fmt_ipmp_dev(l, ipa, msk)
+                    prfmt_mc_row(fds, fmt, col, fnt)
+                    done = True
+
+                if cls == 'phys':
+                    spd = NetPhys[lnk]['speed']
+                    dup = NetPhys[lnk]['duplex']
+
+                    fds, fmt, col, fnt =    \
+                        fmt_phys_dev(l, lnk, cls, stt, mtu, spd, dup)
+                    prfmt_mc_row(fds, fmt, col, fnt)
+
+                    devs -= 1
+                    if devs == 0:
+                        print
+                    continue
+
+                else:
+                    agc = 'gray' if cls == 'vlan' else 'white'
+                    fds, fmt, col, fnt =    \
+                        fmt_aggr_dev(lnk, cls, stt, mtu, agc)
+
+            prfmt_mc_row(fds, fmt, col, fnt)
+            print_phys_devs(l, k)
+
+
+NetLink = {}
+def lnk_config():
+    global NetLink
     global base
-    File = os.path.join(base, 'ingestor/json/dladm-phys-link.out.json')
+    File = os.path.join(base, 'ingestor/json/dladm-show-link.out.json')
 
     if not os.path.exists(File):
         return
 
-    print_header('Networking Info')
     with open(File) as f:
-        nics = json.load(f)
+        NetLink = json.load(f)
 
-    print_net_hdr()
-    for ic in nics:
-        devname = nics[ic]['device']
-        dplx = nics[ic]['duplex']
-        speed = nics[ic]['speed']
-        state = nics[ic]['state']
-        mtu = nics[ic]['mtu']
 
-        # state color
-        stc = 'red' if state != 'up' else 'green'
-        # speed color
-        spc = 'red' if speed == '0' else 'green'
-        # duplex color
-        dxc = 'red' if dplx != 'full' or state != 'up' else 'green'
-        # nic color
-        nmc = 'white' if state == 'up' else 'red'
-        # mtu color
-        if state != 'up':
-            mtc = 'red'
+NetPhys = {}
+def phs_config():
+    global NetPhys
+    global base
+    File = os.path.join(base, 'ingestor/json/dladm-show-phys.out.json')
+
+    if not os.path.exists(File):
+        return
+
+    with open(File) as f:
+        NetPhys = json.load(f)
+
+
+#
+# We do this here because we want to limit the
+# color choices as to what constitutes is a
+# 'valid' IP and Netmask. We reserve 'red' for
+# conflicting IP's
+#
+popc = 2
+def get_next_color():
+    global popc
+    colors = [ 'gray', 'blue', 'purple', 'cyan', 'green', 'yellow' ]
+    popc = popc % len(colors)
+    c = colors[popc]
+    popc += 1
+    return c
+
+
+#
+# Classless Inter Domain Routing
+#
+# cidr: {
+#   ipl:      list              /* list of IP's that map to this subnet */
+#   conflict: True/False        /* True if same IP and same Subnet */
+#   snshared: True/False        /* True if more than 1 IP in Subnet */
+#   color:    'color'           /* Tint to print IP and Netmask */
+# }
+#
+SNInfo = {}
+def net_rehash():
+
+    for i in NetInfo:
+        cidr = NetInfo[i]['ip']['cidr']
+        if cidr not in SNInfo:
+            SNInfo[cidr] = {}
+
+        ip = NetInfo[i]['ip']['inet']
+        if 'ipl' not in SNInfo[cidr]:
+            SNInfo[cidr]['ipl'] = []
+
+        if ip in SNInfo[cidr]['ipl']:
+            SNInfo[cidr]['conflict'] = True
+            SNInfo[cidr]['color'] = 'red'
         else:
-            mtc = 'yellow' if int(mtu) > 9000 else 'green'
+            SNInfo[cidr]['ipl'].append(ip)
+            SNInfo[cidr]['color'] = 'white'
+            SNInfo[cidr]['conflict'] = False
 
-        prfmt_mc_row('%s, %s, %s, %s, %s' % (devname, state, mtu, speed, dplx),
-                    '%10s,  %13s,  %12s, %13s, %15s',
-                    '%s, %s, %s, %s, %s' % (nmc, stc, mtc, spc, dxc),
-                    'bold,  bold,  bold,  bold,  bold')
+        lip = len(SNInfo[cidr]['ipl'])
+        if lip <= 1:
+            SNInfo[cidr]['color'] = 'white'
+        elif lip > 1:
+            SNInfo[cidr]['color'] = get_next_color()
+
+        if ip in SNInfo[cidr]['ipl']:
+            SNInfo[cidr]['snshared'] = lip
+
+    # Debug
+    # js = json.dumps(SNInfo, indent=2, separators=(',', ': '), sort_keys=True)
+    # print js
+
+
+NetInfo = {}
+def net_config():
+    global base
+    File = os.path.join(base, 'ingestor/json/network-info.out.json')
+
+    if not os.path.exists(File):
+        return
+
+    print_header('Network Info')
+    with open(File) as f:
+        data = json.load(f)
+
+    for i in sorted(data):
+        key = ''
+        if 'cfg' in data[i]:
+            ipaddr = data[i]['cfg']['inet']
+            ntmask = data[i]['cfg']['mask']
+            ipnet = '%s/%s' % (ipaddr, ntmask)
+            ip = IPNetwork(ipnet)
+            cidr = '%s' % ip.cidr
+
+            if 'group' in data[i]['cfg']:
+                grp = data[i]['cfg']['group']
+                if grp not in NetInfo:
+                    NetInfo[grp] = {}
+                if 'ip' not in NetInfo[grp]:
+                    NetInfo[grp]['ip'] = {}
+                key = grp
+
+            else:
+                link = data[i]['cfg']['link']
+                if link not in NetInfo:
+                    NetInfo[link] = {}
+                if 'ip' not in NetInfo[link]:
+                    NetInfo[link]['ip'] = {}
+                key = link
+
+            NetInfo[key]['ip']['inet'] = ipaddr
+            NetInfo[key]['ip']['mask'] = ntmask
+            NetInfo[key]['ip']['cidr'] = cidr
+        else:
+            continue
+
+        if 'lnk' in data[i]:
+            iface = data[i]['lnk']['link']
+
+            try:
+                if iface not in NetInfo[key]:
+                    NetInfo[key][iface] = {}
+                    NetInfo[key][iface]['lnk'] = {}
+                NetInfo[key][iface]['lnk'] = data[i]['lnk']
+
+                if 'phs' in data[i]:
+                    if 'phs' not in NetInfo[key][iface]:
+                        NetInfo[key][iface]['phs'] = {}
+                    NetInfo[key][iface]['phs'] = data[i]['phs']
+
+            except KeyError:
+                if iface not in NetInfo:
+                    NetInfo[iface] = {}
+                    NetInfo[iface]['lnk'] = {}
+                NetInfo[iface]['lnk'] = data[i]['lnk']
+
+                if 'phs' in data[i]:
+                    if 'phs' not in NetInfo[iface]:
+                        NetInfo[iface]['phs'] = {}
+                    NetInfo[iface]['phs'] = data[i]['phs']
+
+    debug = False
+    if debug == False:
+        return
+
+    for k in NetInfo:
+        print_bold(k, 'blue', True)
+        print '\tInet:', NetInfo[k]['ip']['inet'],
+        print '\tMask:', NetInfo[k]['ip']['mask'],
+        print '\tCIDR:', NetInfo[k]['ip']['cidr']
+
+    js = json.dumps(NetInfo, indent=2, separators=(',', ': '), sort_keys=True)
+    print js
 
 
 #
@@ -1884,7 +2361,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-09-01 17:00:00 +0600 (Tue, 01 Sep 2015) $"
+__last_updated__ = "$Date: 2015-10-16 11:11:00 +0600 (Fri, 16 Oct 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
