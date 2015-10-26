@@ -1797,6 +1797,15 @@ def sac_results():
         if 'status' in sacres['results'][r]:
             if sacres['results'][r]['status'] == True:
                 if not expt:
+                    if r == 'check_time_delta':
+                        # time_delta threshold == 5s
+                        dlt = sacres['results'][r]['delta']
+                        if dlt > 5:         # flag if time diff is > 5s
+                            prfmt_fail('FAIL', '%27s')
+                        else:
+                            prfmt_pass('PASS', '%27s')
+                        continue
+
                     if len(r) <= 12:
                         prfmt_pass('PASS', '%35s')
                     else:
@@ -2361,7 +2370,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-10-16 11:11:00 +0600 (Fri, 16 Oct 2015) $"
+__last_updated__ = "$Date: 2015-10-23 12:32:00 +0600 (Fri, 23 Oct 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
