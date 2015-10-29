@@ -815,7 +815,7 @@ def hdd_json_params(hdko):
     except KeyError:
         vendr = 'unknown'
 
-    patt = '(OCZ)\S+'
+    patt = '([0-9a-zA-Z_]+)\S*'
     mp = re.match(patt, vendr)
     if mp:
         vdr = mp.group(1)
@@ -823,7 +823,7 @@ def hdd_json_params(hdko):
         vdr = vendr
 
     try:
-        model = hdko['product'].split()[-1]
+        model = hdko['product']
     except KeyError:
         model = 'Indeterminate'
 
@@ -2370,7 +2370,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-10-23 12:32:00 +0600 (Fri, 23 Oct 2015) $"
+__last_updated__ = "$Date: 2015-10-29 11:13:00 +0600 (Thr, 28 Oct 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
