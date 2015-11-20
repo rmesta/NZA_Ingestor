@@ -26,6 +26,7 @@ from netaddr import *
 _ver = '1.0.0'
 base = ''
 zp_stat = {}
+as_vmode = ''
 zp_vmode = ''
 hc_vmode = ''
 sac_res = False
@@ -98,7 +99,6 @@ def get_opthac():
     if not os.path.exists(File):
         return
 
-    print_header('Clustering Info')
     try:
         with open(File) as f:
             json_data = json.load(f)
@@ -107,7 +107,8 @@ def get_opthac():
         print '\t',
         print_warn('No clustering info in bundle', True)
         return
- 
+
+    print_header('Clustering Info')
     for c in json_data:
         for val in sorted(json_data[c]):
             if val == 'ha':
@@ -267,12 +268,20 @@ def vendor_cpu():
 
     for section in json_data:
         if section == 'header':
-            vendor = json_data[section][0].split(':')[1].lstrip()
-            print 'MB Vendor:\t', vendor
+            print_warn('< Using old ingested data; please re-ingest >', True)
+
+        elif section == 'system':
+            print 'MoBo Vendor:\t', json_data[section]
+
+        elif section == 'bios':
+            print 'BIOS Info:\t', json_data[section]
+
+        elif section == 'bmc':
+            print 'BMC Info:\t', json_data[section]
 
         elif section == 'cpu info':
             nc = len(json_data[section])
-            print 'CPU:\t\t',
+            print 'CPU Info:\t',
             ncpu = str(nc) + 'x'
 
             try:
@@ -1706,22 +1715,537 @@ def faults():
     fma_faults()
 
 
-def NFS():
-    # XXX - much work to be done here
+def print_svcs_hdr(mode):
+
+    if mode == 'verbose':
+        prfmt_mc_row(' Service, Shared Volumes',
+                 '%8s, %16s',
+                 'white, white',
+                 'bold, bold')
+
+        prfmt_mc_row(' -------, --------------',
+                 '%8s, %16s',
+                 'white, white',
+                 'bold, bold')
+    else:
+        prfmt_mc_row(' Service, Export Cnt, Protocols, nfsd thrds, lockd thrds',
+                 '%8s, %12s, %15s, %15s, %15s',
+                 'white, white, white, white, white',
+                 'bold, bold, bold, bold, bold')
+
+        ln = '-------, ----------, ---------------, ------------, -------------'
+        prfmt_mc_row(ln,
+                 '%8s, %12s, %18s, %13s, %15s',
+                 'white, white, white, white, white',
+                 'bold, bold, bold, bold, bold')
+
+
+def print_nfs_shared():
+    global base
+    File = os.path.join(base, 'ingestor/json/dfshares.out.json')
+
+    try:
+        with open(File) as f:
+            dfshares  = json.load(f)
+
+    except Exception, e:
+        print 'Exception %s raised' % str(e)
+        return
+
+    idx = 0
+    for s in dfshares:
+        l = len(dfshares[s]['resource'])
+
+        if idx == 0:
+            n = '%'+str(l+4)+'s'
+            v = 'NFS, %s' % dfshares[s]['resource']
+            f = '%s,  %s' % ('%6s', n)
+            c = 'green, white'
+            d = 'bold, lite'
+        else:
+            n = '%'+str(l)+'s'
+            v = '%s, %s' % ('', dfshares[s]['resource'])
+            f = '%s, %s' % ('%10s', n)
+            c = 'white, white'
+            d = 'lite, lite'
+        prfmt_mc_row(v, f, c, d)
+        idx += 1
+
+
+def get_svc_type(svc):
+    if svc == 'sharenfs':
+        return 'NFS'
+    elif svc == 'sharesmb':
+        return 'SMB'
+    else:
+        return 'Unknown'
+
+
+def is_wildcard(s):
+    if '*' in s:
+        return True
+    return False
+
+
+def is_hostname(s):
+    patt = '^([a-zA-Z]+[0-9_.-]*).*$'
+    mp = re.match(patt, s)
+    if mp:
+        return True
+    return False
+
+
+def pfix_strip(s):
+    if '*' in s:
+        S = s.lstrip('*')
+    else:
+        S = s
+
+    if '@' in S:
+        z = S.lstrip('@')
+    else:
+        z = S
+
+    return z
+
+
+def nfs_ips(dfs, s, x):
+
+    X = dfs[s][x]
+    if type(X) is list:
+        ipr = []
+        for p in X:
+            if len(p) == 0:
+                continue
+
+            if p not in ipr:
+                ipr.append(p)
+
+        ips = []
+        hnm = []
+        for s in sorted(ipr):
+            z = pfix_strip(s)
+            if is_hostname(z):
+                hnm.append(z)
+                continue
+            ips.append(z)
+
+        try:
+            s1 = IPSet(ips)
+            val = list(s1.iter_ipranges())
+        except AddrFormatError, e:
+            s = '%s\t<< Invalid Address >>' % str(e).split()[2]
+            v = '%s, %s, %s' % (x, '=', s)
+            f = '%s, %s, %s' % ('%17s', '%s', '%s')
+            c = 'cyan, white, red'
+            d = 'lite, lite, bold'
+            prfmt_mc_row(v, f, c, d)
+            return []
+
+        if len(hnm) > 0:
+            for h in hnm:
+                val.append(h)
+
+    elif type(X) is unicode:
+        if X == '*':
+            return X
+
+        if is_hostname(X):
+            val = []
+            val.append(X)
+            return val
+
+        ips = []
+        ips.append(pfix_strip(X))
+
+        try:
+            s1 = IPSet(ips)
+            val = list(s1.iter_ipranges())
+        except AddrFormatError, e:
+            s = '%s\t<< Invalid Address >>' % str(e).split()[2]
+            v = '%s, %s, %s' % (x, '=', s)
+            f = '%s, %s, %s' % ('%17s', '%s', '%s')
+            c = 'cyan, white, red'
+            d = 'lite, lite, bold'
+            prfmt_mc_row(v, f, c, d)
+            return []
+
+    else:
+        val = dfs[s][x]
+
+    return val
+
+
+def print_nfs_prop(nk, x, p):
+
+    if nk == False:
+        v = '%s, %s, %s' % (x, '=', p)
+        f = '%s, %s, %s' % ('%17s', '%s', '%s')
+        c = 'cyan, white, gray'
+        d = 'lite, lite, lite'
+        prfmt_mc_row(v, f, c, d)
+        nk = True
+    else:
+        n = '%'+str(20+len(p))+'s'
+        prfmt_lite(p, n, 'gray', True)
+
+    return nk
+
+
+NFSData = False
+def print_zfs_nfs(mode):
+    global base
+    global NFSData
+    File = os.path.join(base, 'ingestor/json/zfs-get-nfs.out.json')
+    ipr = []
+
+    try:
+        with open(File) as f:
+            dfshares  = json.load(f)
+
+    except Exception, e:
+        print 'Exception %s raised' % str(e)
+        return
+
+    svc = ''
+    numshares = 0
+    for s in dfshares:
+        n = '%'+str(len(s)+4)+'s'
+        svc = get_svc_type(dfshares[s]['type'])
+        if mode == 'verbose':
+            v = '%s, %s' % (svc, s)
+            f = '%s, %s' % ('%6s', n)
+            c = 'green, white'
+            d = 'bold, bold'
+            prfmt_mc_row(v, f, c, d)
+
+        numshares += 1
+        if mode == 'verbose':
+
+            for x in sorted(dfshares[s]):
+                if x == 'type':
+                    continue
+
+                nfsk = {}
+                if x == 'root' or x == 'rw' or x == 'ro':
+
+                    if x not in nfsk:
+                        nfsk[x] = {}
+                        nfsk[x]['prt'] = False
+
+                    for p in nfs_ips(dfshares, s, x):
+                        try:
+                            first, last = p.__str__().split('-')
+                        except:
+                            if is_hostname(p) or is_wildcard(p):
+                                key = nfsk[x]['prt']
+                                nfsk[x]['prt'] = print_nfs_prop(key, x, p)
+                            continue
+
+                        if first == last:
+                            ip = first
+                        else:
+                            ip = '%s - %s' % (first, last)
+
+                        key = nfsk[x]['prt']
+                        nfsk[x]['prt'] = print_nfs_prop(key, x, ip)
+                    continue
+
+                try:
+                    v = '%s, %s, %s' % (x, '=', dfshares[s][x])
+                    f = '%s, %s, %s' % ('%17s', '%s', '%s')
+                    c = 'cyan, white, gray'
+                    d = 'lite, lite, bold'
+                    prfmt_mc_row(v, f, c, d)
+
+                except IndexError, e:
+                    if x == 'anon':
+                        msg = '<< Config Error: anon MUST be a single uid >>'
+                        print_fail(msg)
+                    else:
+                        emsg = str(e)
+                        v = '%s, %s, %s' % (x, '=', emsg)
+                        f = '%s, %s, %s' % ('%17s', '%s', '%s')
+                        c = 'cyan, white, red'
+                        d = 'lite, lite, bold'
+                        prfmt_mc_row(v, f, c, d)
+            print
+
+    if mode == 'summary':
+        if  numshares > 0:
+            prfmt_bold(svc, '%6s', 'green', False)
+            prfmt_bold(numshares, '%10d', 'cyan', False)
+            NFSData = True
+        else:
+            NFSData = False
+
+
+def print_nfs_srv_hdr(mode):
+    if mode == 'verbose':
+        prfmt_mc_row('setting, value',
+                 '%22s, %16s',
+                 'white, white',
+                 'bold, bold')
+
+        prfmt_mc_row('-------, ------',
+                 '%22s, %16s',
+                 'white, white',
+                 'bold, bold')
+
+
+NTL = 0
+def print_nfsd(thrds):
+    global PSL
+    global NTL
+    prfmt_lite(' ', '%s', 'white', False)
+    NTL = len(thrds)
+    if NTL == 4:
+        if PSL == 11:
+            f = '%4s'
+        elif PSL == 5:
+            f = '%7s'
+        else:
+            f = '%s'
+        prfmt_lite(' ', f, 'white', False)
+        fmt = '%4s'
+    elif NTL == 3:
+        if PSL == 11:
+            f = '%4s'
+        elif PSL == 5:
+            f = '%7s'
+        else:
+            f = '%s'
+        prfmt_lite(' ', f, 'white', False)
+        fmt = '%4s'
+    elif NTL == 2:
+        if PSL == 17:
+            f = '%2s'
+        elif PSL == 11:
+            f = '%4s'
+        elif PSL == 5:
+            f = '%8s'
+        else:
+            f = '%s'
+        prfmt_lite(' ', f, 'white', False)
+        fmt = '%2s'
+    else:
+        fmt = '%s'
+    prfmt_lite(thrds, fmt, 'green', False)
+    return
+
+
+def print_lockd(thrds):
+    global NTL
+
+    lklen = len(thrds)
+    if lklen == 4:
+        if NTL == 4:
+            f = '%10s'
+        elif NTL == 3:
+            f = '%5s'
+        else:
+            f = '%7s'
+        prfmt_lite(' ', f, 'white', False)
+        fmt = '%4s'
+    elif lklen == 3:
+        if NTL == 4:
+            f = '%9s'
+        elif NTL == 3:
+            f = '%9s'
+        else:
+            f = '%13s'
+        prfmt_lite(' ', f, 'white', False)
+        fmt = '%4s'
+    elif lklen == 2:
+        if NTL == 4:
+            f = '%8s'
+        elif NTL == 3:
+            f = '%9s'
+        else:
+            f = '%10s'
+        prfmt_lite(' ', f, 'white', False)
+        fmt = '%4s'
+    else:
+        fmt = '%s'
+    prfmt_lite(thrds, fmt, 'green', False)
+
+
+def print_nfs_srv_cfg(mode):
+    global base
+    global NFSData
+    File = os.path.join(base, 'ingestor/json/sharectl-get-nfs.out.json')
+
+    try:
+        with open(File) as f:
+            data = json.load(f)
+
+    except Exception, e:
+        print 'Exception %s raised' % str(e)
+        return
+
+    print_nfs_srv_hdr(mode)
+    if mode == 'verbose':
+        for c in sorted(data):
+            sc = 'white'
+            if c == 'server_delegation':
+                sc = 'green' if data[c] == 'on' else 'red'
+
+            if c == 'grace_period':
+                sc = 'green' if int(data[c]) >= 90 else 'red'
+            v = '%s, %s' % (c, data[c])
+            f = '%s, %s' % ('%25s', '%12s')
+            c = 'white, %s' % sc
+            d = 'lite,  bold'
+            prfmt_mc_row(v, f, c, d)
+    else:
+        if NFSData == True:
+            print_nfsd(data['servers'])
+            print_lockd(data['lockd_servers'])
+    print
+
+
+def print_nfs_srv_stat_hdr(mode):
+    if mode == 'verbose':
+        prfmt_mc_row('proto, calls, (%), badcalls, (%)',
+                 '%15s, %15s, %5s, %15s, %5s',
+                 'white, white, white, white, white',
+                 'bold, bold, bold, bold, bold')
+
+        prfmt_mc_row('-----, ------------------, ------------------',
+                 '%15s, %22s, %22s',
+                 'white, white, white',
+                 'bold, bold, bold')
+
+
+PSL = ''
+def print_nfs_srv_stats(mode):
+    global base
+    global NFSData
+    global PSL
+    File = os.path.join(base, 'ingestor/json/nfsstat-s.out.json')
+
+    try:
+        with open(File) as f:
+            data = json.load(f)
+
+    except Exception, e:
+        print 'Exception %s raised' % str(e)
+        return
+
+    proto_list = []
+    print_nfs_srv_stat_hdr(mode)
+    for ln in data:
+        patt = 'nfsv(\d+)'
+        mp = re.match(patt, ln)
+        if mp:
+            vers = mp.group(1)
+            proto = 'nfsv' + vers
+
+            calls = data[ln]['stats']['calls']
+            badcl = data[ln]['stats']['badcalls']
+            ic = int(calls)
+            bc = int(badcl)
+
+            if mode == 'summary':
+                if ic > 0 or bc > 0:
+                    proto_list.append(proto)
+                continue
+
+            if ic > 0 and bc > 0:
+                total = float(ic + bc)
+                gcp = float(float(ic) / total) * 100
+                bcp = float(float(bc) / total) * 100
+                v = '%s, %d, (%d%%), %d, (%d%%)' % (proto, ic, gcp, bc, bcp)
+                f = '%s, %s, %s, %s, %s' %\
+                    ('%15s', '%15s', '%5s', '%15s', '%5s')
+                c = 'white, green, green, red, red'
+                d = 'lite,  bold, lite, bold, lite'
+                prfmt_mc_row(v, f, c, d)
+            elif ic > 0:
+                v = '%s, %s' % (ln, calls)
+                f = '%s, %s' % ('%25s', '%12s')
+                c = 'white, green'
+                d = 'lite,  lite'
+                prfmt_mc_row(v, f, c, d)
+            elif bc > 0:
+                v = '%s, %s' % (ln, badcl)
+                f = '%s, %s' % ('%25s', '%12s')
+                c = 'white, red'
+                d = 'lite,  lite'
+                prfmt_mc_row(v, f, c, d)
+
+    if mode == 'summary' and NFSData == True:
+        prfmt_lite(' ', '%5s', 'white', False)
+        plst = sorted(proto_list)
+        plen = len(plst)
+        pstr = ''.join(x + ',' for x in plst).rstrip(',')
+        PSL = len(pstr)
+        if plen == 1:
+            prfmt_lite(' ', '%5s', 'white', False)
+            fmt = '%5s'
+        elif plen == 2:
+            prfmt_lite(' ', '%2s', 'white', False)
+            fmt = '%11s'
+        elif plen == 3:
+            fmt = '%s'
+        else:
+            pstr = '< No proto data >'
+            PSL = len(pstr)
+            prfmt_bold(pstr, '%s', 'red', False)
+            return
+        prfmt_lite(pstr, fmt, 'green', False)
+    else:
+        print
+
+
+def nfs_enabled():
     global base
     File = os.path.join(base,   \
         'ingestor/json/svccfg-s-svcnetworknfsserverdefault-listprop.out.json')
 
-    with open(File) as f:
-        topix = json.load(f)
-    for key in topix.keys():
-        print key
+    try:
+        with open(File) as f:
+            data = json.load(f)
+
+    except Exception, e:
+        print 'Exception %s raised' % str(e)
+        return
+
+    if 'general' in data:
+        if 'enabled' in data['general']:
+            if data['general']['enabled'] == 'true':
+                return True
+    return False
 
 
-def services():
-    # XXX - disabled at the moment
+def nfs_sharing():
+    global base
+    File = os.path.join(base, 'ingestor/json/zfs-get-nfs.out.json')
+
+    try:
+        with open(File) as f:
+            dfshares  = json.load(f)
+
+    except Exception, e:
+        # If the file doesn't exist, we're not sharing anything
+        return False
+
+    if len(dfshares) > 0:
+        return True
+    return False
+
+
+def NFS(mode):
+    if nfs_enabled() and nfs_sharing():
+        print_svcs_hdr(mode)
+        print_zfs_nfs(mode)
+        print_nfs_srv_stats(mode)
+        print_nfs_srv_cfg(mode)
+
+
+def services(mode):
     print_header('Appliance Services')
-    NFS()
+    NFS(mode)
 
 
 def disk_heuristics(dev, tput):
@@ -1850,6 +2374,7 @@ def sac_results():
 
 
 def orchestrator():
+    global as_vmode
     global zp_vmode
     global sac_res
 
@@ -1863,7 +2388,7 @@ def orchestrator():
     hddko()
     network()
     faults()
-    #services()
+    services(as_vmode)
     if sac_res:
         sac_results()
 
@@ -2281,8 +2806,18 @@ def health_check():
     return
 
 
+def invalid_flag(parser, mode, modstr):
+    print_warn('\n\t' + mode, False)
+    print 'is not a valid option for',
+    msg = '\'--%s\'\n' % modstr
+    print_bold(msg, 'white', True)
+    parser.print_help()
+    sys.exit(2)
+
+
 def main():
     global base
+    global as_vmode
     global zp_vmode
     global hc_vmode
     global sac_res
@@ -2292,7 +2827,9 @@ def main():
     parser = optparse.OptionParser(usage='%prog ' + c.bold_white +          \
         '--path ' + c.reset + 'collector_bundle_dir ' + '[ ' +              \
         c.bold_white + '--zpmode' + c.reset + ' (\'summary\'|\'verbose\') ]'\
-        + '\n' + 16*' ' + '[ ' + c.bold_white + '--sac' + c.reset + ' ]' +  \
+        + '\n' + 16*' ' +  '[ ' + c.bold_white + '--asmode' + c.reset +     \
+        ' (\'summary\'|\'verbose\') ]' + ' [ ' + c.bold_white + '--sac' +   \
+        c.reset + ' ]' +  \
         '\n' + 7*' '+ 'nxcat.py' + c.bold_white + ' --dark-site' + c.reset  \
         + '\n' + 7*' ' + 'nxcat.py' + c.bold_white + ' --path' + c.reset +  \
         ' collector_bundle_dir' + c.bold_white + ' --health-check' + c.reset\
@@ -2303,8 +2840,11 @@ def main():
         help='Fully qualified path to already ingested collector bundle ' + \
         'directory', metavar='BundlePath', nargs=1)
     parser.add_option('--zpmode', dest='zvmode', type='str', default='summary',
-        help='\'summary\' or \'verbose\' Mode for Zpool Information',
-        metavar='vmode', nargs=1)
+        help='\'summary\' or \'verbose\' mode for Zpool Information',
+        metavar='zpmode', nargs=1)
+    parser.add_option('--asmode', dest='asmode', type='str', default='summary',
+        help='\'summary\' or \'verbose\' mode for Appliance Services Info',
+        metavar='asmode', nargs=1)
     parser.add_option('--sac', action="store_true", default=False,
         help='Show SAC results for bundles that were successfully autosac\'ed',
         metavar=None)
@@ -2347,11 +2887,11 @@ def main():
     if not dark:
         zp_vmode = options_args.zvmode
         if zp_vmode != 'summary' and zp_vmode != 'verbose':
-            print_warn('\n\t' + zp_vmode, False)
-            print 'is not a valid option for',
-            print_bold('\'--zpmode\'\n', 'white', True)
-            parser.print_help()
-            sys.exit(2)
+            invalid_flag(parser, zp_vmode, 'zpmode')
+
+        as_vmode = options_args.asmode
+        if as_vmode != 'summary' and as_vmode != 'verbose':
+            invalid_flag(parser, as_vmode, 'asmode')
 
     orchestrator()
 
@@ -2370,7 +2910,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-10-29 11:13:00 +0600 (Thr, 28 Oct 2015) $"
+__last_updated__ = "$Date: 2015-11-20 12:32:00 +0600 (Fri, 20 Nov 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"

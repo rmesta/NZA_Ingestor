@@ -644,6 +644,57 @@ def nfsstat_json(bdir):
     json_save(bdir, jsdmp, jsout)
 
 
+def dfshares_jsp(fname):
+    hdrs = []
+    for e in read_raw_txt(fname)[0].split():
+        pattern = '[A-Z-_@]+'
+        mp = re.match(pattern, e)
+        if mp:
+            hdrs.append(mp.group(0).lower())
+
+    data = []
+    for line in read_raw_txt(fname):
+        if line.startswith('RESOURCE'):
+            continue
+        patt = '^\s*(.*)$'
+        mp = re.match(patt, line)
+        if mp:
+            data.append(mp.group(0))
+
+    idx = 1
+    json_data = {}
+    for d in data:
+        val = d.split()
+        key = 'nfs' + str(idx)
+
+        new = {}
+        for i in xrange(0, len(hdrs)):
+            patt = '(\S+)$'
+            mp = re.match(patt, val[i])
+            if mp:
+                new[hdrs[i]] = mp.group(1)
+            else:
+                new[hdrs[i]] = val[i]
+        idx += 1
+        json_data[key] = new
+
+    return json_data
+
+
+def dfshares_json(bdir):
+    fname = os.path.join(bdir, 'nfs/dfshares')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+    stfile = fname + '.stats'
+
+    if not valid_collector_output(fname):
+        return
+
+    jsdct = dfshares_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
 def sharectl_getnfs_jsp(fname):
     sharenfs = {}
 
@@ -742,6 +793,55 @@ def svccfg_nfsprops_json(bdir):
         return
 
     jsdct = svccfg_nfsprops_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
+def zfsgetnfs_jsp(fname):
+    zfsnfs = {}
+
+    for line in read_raw_txt(fname):
+        patt = '^(\S+)\s+(sharenfs)\s+(\S+)\s+(\S+)$'
+        mp = re.match(patt, line)
+        if mp:
+            if mp.group(3) == 'off':
+                continue
+            vname = mp.group(1)
+            pname = mp.group(2)
+            props = mp.group(3)
+            orign = mp.group(4)
+
+            if vname not in zfsnfs:
+                zfsnfs[vname] = {}
+            zfsnfs[vname]['src'] = orign
+            zfsnfs[vname]['type'] = pname
+            for x in props.split(','):
+                if ':' in x:
+                    key, lst = x.split('=')
+                    tmp = []
+                    for l in lst.split(':'):
+                        tmp.append(l)
+                    zfsnfs[vname][key] = tmp
+                    continue
+                if '=' in x:
+                    k, v = x.split('=')
+                    zfsnfs[vname][k] = v
+
+    return zfsnfs
+
+
+def zfsgetnfs_json(bdir):
+    fname = os.path.join(bdir, 'zfs/zfs-get-p-all')
+    rtfile = fname + '.out'
+    jsout = 'zfs-get-nfs.out.json'
+    stfile = fname + '.stats'
+
+    if not valid_collector_output(fname):
+        return
+
+    jsdct = zfsgetnfs_jsp(rtfile)
+    if len(jsdct) == 0:
+        return
     jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
     json_save(bdir, jsdmp, jsout)
 
@@ -1417,8 +1517,22 @@ def prtdiag_jsp(fname):
                 cpus.append(mp.group(1).strip())
 
     if ln:
-        hwdiag['header'] = hdrs
         hwdiag['cpu info'] = cpus
+        for h in hdrs:
+            if len(h) == 0:
+                continue
+
+            try:
+                lbl = h.split(':')[0].lower().split()[0]
+            except IndexError, e:
+                pprint(h)
+                print str(e)
+                continue
+
+            patt = '^(.*ion):\s+(.*)$'
+            mp = re.match(patt, h)
+            if mp:
+                hwdiag[lbl] = mp.group(2)
 
     return hwdiag
 
@@ -2076,6 +2190,8 @@ def opthac_jsp(gzname):
         node = 'node' + str(l)
         hac['cluster'][node]['machid'] = hw[m]
 
+    if len(hac.keys()) == 1:
+        hac = None
     return hac
 
 
@@ -2089,6 +2205,8 @@ def opthac_json(bdir):
         return
 
     jsdct = opthac_jsp(gzfile)
+    if jsdct is None:
+        return
     jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
     json_save(bdir, jsdmp, jsout)
 
@@ -2391,6 +2509,8 @@ def main(bundle_dir):
                 'hddisco',              \
                 'iostat',               \
                 'nfsstat',              \
+                'dfshares',             \
+                'zfsgetnfs',            \
                 'sharectl_nfs',         \
                 'sharemgr',             \
                 'svccfg',               \
@@ -2429,6 +2549,8 @@ def main(bundle_dir):
                 'hddisco_json':             hddisco_json,
                 'iostat_json':              iostat_json,
                 'nfsstat_json':             nfsstat_json,
+                'zfsgetnfs_json':           zfsgetnfs_json,
+                'dfshares_json':            dfshares_json,
                 'sharectl_nfs_json':        sharectl_getnfs_json,
                 'sharemgr_json':            sharemgr_showvp_nfs_json,
                 'svccfg_json':              svccfg_nfsprops_json,
@@ -2488,7 +2610,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2015-10-14 16:52:00 +0600 (Wed, 14 Oct 2015) $"
+__last_updated__ = "$Date: 2015-11-20 10:36:00 +0600 (Fri, 20 Nov 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
