@@ -248,6 +248,23 @@ def dump_dev():
     return
 
 
+def max_cstates():
+    global  base
+    File = os.path.join(base, 'ingestor/json/kstat-p-td-10-6.out.json')
+
+    print 'max_cstates:\t',
+    try:
+        with open(File) as f:
+            data = json.load(f)
+
+    except IOError:
+        print_warn('No Data Found', True)
+        return
+
+    for d in data:
+        print_pass(data[d])
+
+
 #
 # Hardware
 #
@@ -643,7 +660,7 @@ def zp_list(mode):
             print_bold(bootfs, 'white', True)
 
             print 'Total:\t\t',
-            print_bold(size + ' / ' + used, 'white', True)
+            print_bold(used + ' / ' + size, 'white', True)
 
             capacity = int(cap.split('%')[0])
             if capacity <= lowat:
@@ -662,18 +679,18 @@ def zp_list(mode):
 def print_jbod_hdr():
 
     prfmt_mc_row('     ,      ,      ,      , Total,  Busy',
-                 ' %15s,  %12s,  %20s,  %21s,   %9s,   %6s',
+                 ' %15s,  %12s,  %20s,  %21s,  %10s,   %5s',
                  'white, white, white, white, white, white',
                  ' bold,  bold,  bold,  bold,  bold,  bold')
 
-    prfmt_mc_row('JBOD, Vendor, Model, Serial Number, Slots, Slots',
-                 '%12s,    %8s,  %16s,          %17s,   %7s,  %5s,',
+    prfmt_mc_row('JBOD, Vendor, Model, Serial Number, Slots , Slots',
+                 '%9s,    %11s,  %13s,          %21s,   %7s,  %6s',
                  'white, white, white,         white, white, white',
                  ' bold,  bold,  bold,          bold,  bold,  bold')
 
-    prfmt_mc_row('----------, ------, ---------------, \
+    prfmt_mc_row('----------, --------, ----------------, \
                  ----------------, -----, -----',
-                 '%12s,    %8s,  %16s,  %17s,   %7s,  %8s,',
+                 '%12s,    %9s,  %17s,  %17s,   %6s,  %7s',
                  'white, white, white, white, white, white',
                  ' bold,  bold,  bold,  bold,  bold,  bold')
 
@@ -689,7 +706,7 @@ def dump_jbod_data(status, alias, vendor, model, serial, tslots, bslots):
 
     vals = '%s, %s, %s, %s, %s, %s' %  \
         (alias, vendor, model, serial, tslots, bslots)
-    fmts = '%12s,    %8s,  %16s,  %17s,   %7s,  %7s,'
+    fmts = '%12s,    %9s,  %17s,  %17s,   %5s,  %6s,'
     cols = '%s, %s, %s, %s, %s, %s' %  \
         (tint, 'white', 'white', 'white', 'white', 'white')
     disp = ' bold,  lite,  lite,  lite,  lite,  lite'
@@ -806,19 +823,35 @@ def jbods():
 # hddisco Info
 #
 def print_hddko_hdr():
-    prfmt_mc_row('cnt,  vendor, model,   F/W, mpxio,  pcnt,   SSD',
-                 '%5s,     %9s,  %17s,   %9s,  %11s,   %6s,   %5s',
-                 'white, white, white, white, white, white, white',
-                 'bold,   bold,  bold,  bold,  bold,  bold,  bold')
+    prfmt_mc_row('Cnt,  Vendor, Model,   F/W, mpxio,  pths,  SSD,  SMART',
+                 '%5s,     %8s,  %13s,  %12s,   %9s,   %6s,   %5s,    %8s',
+                 'white, white, white, white, white, white, white,  white',
+                 'bold,   bold,  bold,  bold,  bold,  bold,  bold,   bold')
 
-    prfmt_mc_row('---, -------, ---------------, -----, -----, ----, ---',
-                 '%5s,     %9s,  %17s,  %10s,   %9s,   %6s,   %5s',
-                 'white, white, white, white, white, white, white',
-                 'bold,   bold,  bold,  bold,  bold,  bold,  bold')
+    s = '---, --------, ----------------, -----, -----, ----, ---, -----'
+    prfmt_mc_row(s,
+                 '%5s,     %9s,  %17s,  %8s,   %s,   %6s,   %5s,  %s',
+                 'white, white, white, white, white, white, white, white',
+                 'bold,   bold,  bold,  bold,  bold,  bold,  bold,  bold')
 
 
-def hdd_json_params(hdko):
+def hdd_json_params(hdisks, dev):
+    global base
+    File = os.path.join(base, 'ingestor/json/nmc-c-show-lun-smartstat.out.json')
 
+    smrt = ''
+    if not os.path.exists(File):
+        smrt = 'Unknown'
+    else:
+        with open(File) as f:
+            smrtdata = json.load(f)
+
+        for sd in smrtdata:
+            if dev in smrtdata[sd]['luns']:
+                smrt = smrtdata[sd]['luns'][dev]['status']
+                break
+
+    hdko = hdisks[dev]
     try:
         vendr = hdko['vendor']
     except KeyError:
@@ -861,7 +894,7 @@ def hdd_json_params(hdko):
     except KeyError:
         serno = 'unknown'
 
-    return vdr, model, fware, ssd, mpxio, pcnt, serno
+    return vdr, model, fware, ssd, mpxio, pcnt, serno, smrt
 
 
 def hddko():
@@ -880,9 +913,10 @@ def hddko():
         if disks[hdd]['device_type'] != 'disk':
             continue
 
-        vdr, model, fware, ssd, mpxio, pcnt, serno = hdd_json_params(disks[hdd])
+        vdr, model, fware, ssd, mpxio, pcnt, serno, smrt = \
+            hdd_json_params(disks, hdd)
         if debug:
-            print hdd, vdr, model, fware, '\'%s\'' % ssd,
+            print hdd, vdr, model, fware, '\'%s\'' % ssd, smrt
 
         if vdr not in brands:
             brands[vdr] = {}
@@ -895,6 +929,11 @@ def hddko():
         if mpxio not in brands[vdr][model][fware][ssd]:
             brands[vdr][model][fware][ssd][mpxio] = {}
             brands[vdr][model][fware][ssd][mpxio]['count'] = 0
+
+        if smrt not in brands[vdr][model][fware][ssd][mpxio]:
+            brands[vdr][model][fware][ssd][mpxio][smrt] = {}
+            brands[vdr][model][fware][ssd][mpxio][smrt]['count'] = 0
+
         if 'devs' not in brands[vdr][model][fware][ssd][mpxio]:
             brands[vdr][model][fware][ssd][mpxio]['devs'] = []
 
@@ -918,6 +957,7 @@ def hddko():
         f['pts'] = ports
         f['dup'] = pdups
         f['sno'] = serno
+        f['smt'] = smrt
         brands[vdr][model][fware][ssd][mpxio]['devs'].append(f)
 
         if mpxio == "yes":
@@ -933,6 +973,7 @@ def hddko():
                 print ports
 
         brands[vdr][model][fware][ssd][mpxio]['count'] += 1
+        brands[vdr][model][fware][ssd][mpxio][smrt]['count'] += 1
 
     if debug:
         pprint(brands)
@@ -973,6 +1014,26 @@ def hddko():
                         c = brands[v][m][f][d][x]['count']
                         s = brands[v][m][f][d][x]['status']
                         p = brands[v][m][f][d][x]['paths']
+                        try:
+                            SMRT = brands[v][m][f][d][x]['Enabled']['count']
+                        except KeyError:
+                            SMRT = 0
+
+                        if s == 'on':
+                            sc = 'green'
+                            sd = 'bold'
+                        else:
+                            sc = 'yellow'
+                            sd = 'lite'
+
+                        if SMRT > 0:
+                            XC = 'yellow'
+                            XD = 'bold'
+                            XM = 'on '
+                        else:
+                            XC = 'green'
+                            XD = 'lite'
+                            XM = 'off '
 
                         #
                         # check for duplicates and form new LoD => pl[{}, ...]
@@ -988,19 +1049,16 @@ def hddko():
                                     Z['disk'] = hw['dev']
                                     pl.append(Z)
 
-                        sc = 'green' if s == 'on' else 'yellow'
-                        sd = 'bold' if s == 'on' else 'lite'
-
                         #
                         # print hdd aggregate info
                         #
-                        z = '%s, %s, %s, %s, %s, %s, %s' % \
-                            (c,   v,  m,  f,  s,  p,  d)
-                        y = '%5s, %9s, %17s, %10s, %9s, %6s, %6s'
-                        w = 'white, %s, %s, %s, %s, white, %s' % \
-                            (vc, mc, fc, sc, dc)
-                        D = 'lite, %s, %s, %s, %s, lite, %s' % \
-                            (vd, md, fd, sd, dd)
+                        z = '%s, %s, %s, %s, %s, %s, %s, %s' %  \
+                            (c, v, m, f, s, p, d, XM)
+                        y = '%5s, %9s, %17s, %8s, %7s, %6s, %6s, %7s'
+                        w = 'white, %s, %s, %s, %s, white, %s, %s' % \
+                            (vc, mc, fc, sc, dc, XC)
+                        D = 'lite, %s, %s, %s, %s, lite, %s, %s' % \
+                            (vd, md, fd, sd, dd, XD)
                         prfmt_mc_row(z, y, w, D)
 
                         #
@@ -1199,7 +1257,13 @@ def print_phys_devs(l, k):
         if i == '--':
             print
             return
-        cls = NetLink[i]['class']
+        try:
+            cls = NetLink[i]['class']
+        except KeyError:
+            m = '\n%s: No such device' % i
+            print_fail(m)
+            continue
+
         lnk = ni[l][k]['lnk']['link']
         stt = ni[l][k]['lnk']['state']
         mtu = ni[l][k]['lnk']['mtu']
@@ -2382,6 +2446,8 @@ def orchestrator():
     vendor_cpu()
     memory()
     dump_dev()
+    max_cstates()
+
     get_opthac()
     zp_list(zp_vmode)       # pass in 'verbose' to zp_list() for full output
     jbods()
@@ -2910,7 +2976,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-11-20 12:32:00 +0600 (Fri, 20 Nov 2015) $"
+__last_updated__ = "$Date: 2015-12-18 12:37:00 +0600 (Fri, 18 Dec 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"

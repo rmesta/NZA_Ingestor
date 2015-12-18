@@ -39,7 +39,11 @@ def valid_collector_output(fname):
     if called_by == 'opthac_json' or called_by == 'fma_faults_json':
         src_file = tgz_file
         
-    vostat = valid_output(fname)
+    if called_by == 'lun_smartstat_json':
+        vostat = valid_output(fname, True)
+    else:
+        vostat = valid_output(fname)
+
     if vostat != Errors.e_ok:
         if vostat == Errors.e_nzrc:
             if vcdbg:
@@ -995,6 +999,36 @@ def etcsystm_json(bdir):
     json_save(bdir, jsdmp, jsout)
 
 
+def max_cstates_jsp(fname):
+    data = {}
+
+    max_cs = 0
+    for line in read_raw_txt(fname):
+
+        patt = '^\w+:\d+:\w+:supported_max_cstates\s+(\d+)'
+        mp = re.match(patt, line)
+        if mp:
+            cs = mp.group(1)
+            if cs > max_cs:
+                max_cs = cs
+
+    data['max_cstates'] = max_cs
+    return data
+
+
+def max_cstates_json(bdir):
+    fname = os.path.join(bdir, 'kernel/kstat-p-td-10-6')
+    rtfile = fname + '.out'
+    jsout = rtfile + '.json'
+
+    if not valid_collector_output(fname):
+        return
+
+    jsdct = max_cstates_jsp(rtfile)
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
 def zplistall_jsp(fname):
     hdrs = []
     for e in read_raw_txt(fname)[0].split():
@@ -1766,7 +1800,25 @@ def mailer_json(bdir):
     json_save(bdir, jsdmp, jsout)
 
 
-def lun_smartstat_jsp(fname):
+def normalize_lun_id(bdir, lunid):
+    if '.' not in lunid:
+        return lunid
+
+    patt = '^\w+(?:...)(\S+)'
+    mp = re.match(patt, lunid)
+    if mp:
+        sp = mp.group(1)
+
+    fname = os.path.join(bdir, 'disk/hddisco') + '.out'
+    for line in read_raw_txt(fname):
+        if line.startswith('='):
+            patt = '=(\w+%s)' % sp
+            mp = re.match(patt, line)
+            if mp:
+                return mp.group(1)
+
+
+def lun_smartstat_jsp(bdir, fname):
     lunstat = {}
 
     for line in read_raw_txt(fname):
@@ -1776,7 +1828,7 @@ def lun_smartstat_jsp(fname):
         patt = '^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)'
         mp = re.match(patt, line)
         if mp:
-            lid = mp.group(1)
+            lid = normalize_lun_id(bdir, mp.group(1))
             dev = mp.group(2)
             sze = mp.group(3)
             vol = mp.group(4)
@@ -1808,7 +1860,7 @@ def lun_smartstat_json(bdir):
     if not valid_collector_output(fname):
         return
 
-    jsdct = lun_smartstat_jsp(rtfile)
+    jsdct = lun_smartstat_jsp(bdir, rtfile)
     jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
     json_save(bdir, jsdmp, jsout)
 
@@ -2542,7 +2594,8 @@ def main(bundle_dir):
                 'network',              \
                 'itadm_list_tpg',       \
                 'itadm_list_target',    \
-                'for_lu_in_stmfadm']
+                'for_lu_in_stmfadm',    \
+                'max_cstates']
 
     convfuncs = {'aptsrc_json':             aptsrc_json,
                 'nmchkpt_json':             nmchkpt_json,
@@ -2582,7 +2635,8 @@ def main(bundle_dir):
                 'lun_slotmap_json':         lun_slotmap_json,
                 'itadm_list_tpg_json':      itadm_list_tpg_json,
                 'itadm_list_target_json':   itadm_list_target_json,
-                'for_lu_in_stmfadm_json':   for_lu_in_stmfadm_json}
+                'for_lu_in_stmfadm_json':   for_lu_in_stmfadm_json,
+                'max_cstates_json':         max_cstates_json}
 
     if verify_bundle_directory(script_name, bundle_dir):
         for nm in convnames:
@@ -2610,7 +2664,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2015-11-20 10:36:00 +0600 (Fri, 20 Nov 2015) $"
+__last_updated__ = "$Date: 2015-12-17 13:56:00 +0600 (Thr, 17 Dec 2015) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
