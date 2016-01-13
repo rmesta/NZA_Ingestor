@@ -74,7 +74,12 @@ def get_cs_items():
 
         elif l.startswith('License'):
             license = l.split(':')[-1].strip()
-            print 'License:\t', license
+
+            print 'License:' + 7*' ',
+            if license.startswith('TRIA'):
+                print_fail(license)
+            else:
+                print license
 
             machid = l.split('-')[-2].strip()
             print 'Machine ID:\t',
@@ -2168,17 +2173,42 @@ def print_nfs_srv_cfg(mode):
     print
 
 
-def print_nfs_srv_stat_hdr(mode):
-    if mode == 'verbose':
-        prfmt_mc_row('proto, calls, (%), badcalls, (%)',
-                 '%15s, %15s, %5s, %15s, %5s',
-                 'white, white, white, white, white',
-                 'bold, bold, bold, bold, bold')
+def print_proto_hdr(proto):
+    print_bold('\t' + proto + ':', 'blue', True)
 
-        prfmt_mc_row('-----, ------------------, ------------------',
-                 '%15s, %22s, %22s',
-                 'white, white, white',
-                 'bold, bold, bold')
+    v = '%s, %s, %s' % ('ops', 'calls', 'pcnt')
+    f = '%s, %s, %s' % ('%20s', '%15s', '%10s')
+    c = 'white, white, white'
+    d = 'bold, bold, bold'
+    prfmt_mc_row(v, f, c, d)
+
+    opl = '-'*10
+    cll = '-'*12
+    ptl = '-'*7
+    v = '%s, %s, %s' % (opl, cll, ptl)
+    f = '%s, %s, %s' % ('%20s', '%15s', '%10s')
+    c = 'white, white, white'
+    d = 'bold, bold, bold'
+    prfmt_mc_row(v, f, c, d)
+    return
+
+
+nfs2_ops = ['create', 'getattr', 'link', 'lookup', 'mkdir', 'null', 'read',    \
+            'readdir', 'readlink', 'remove', 'rename', 'rmdir', 'root',        \
+            'setattr', 'statfs', 'symlink', 'wrcache', 'write' ]
+
+nfs3_ops = ['access', 'commit', 'create', 'fsinfo', 'fsstat', 'getattr',       \
+            'link', 'lookup', 'mkdir', 'mknod', 'null', 'pathconf', 'read',    \
+            'readdir', 'readdirplus', 'readlink', 'remove', 'rename',          \
+            'rmdir', 'setattr', 'symlink', 'write']
+
+nfs4_ops = ['access', 'close', 'commit', 'create', 'delegpurge', 'delegreturn',\
+            'getattr', 'getfh', 'link', 'lock', 'lockt', 'locku', 'lookup',    \
+            'lookupp', 'nverify', 'open', 'open_confirm', 'open_downgrade',    \
+            'openattr', 'putfh', 'putpubfh', 'putrootfh', 'read', 'readdir',   \
+            'readlink', 'release_lockowner', 'remove', 'rename', 'renew',      \
+            'restorefh', 'savefh', 'secinfo', 'setattr', 'setclientid',        \
+            'setclientid_confirm', 'verify', 'write']
 
 
 PSL = ''
@@ -2197,7 +2227,7 @@ def print_nfs_srv_stats(mode):
         return
 
     proto_list = []
-    print_nfs_srv_stat_hdr(mode)
+    op = {}
     for ln in data:
         patt = 'nfsv(\d+)'
         mp = re.match(patt, ln)
@@ -2210,33 +2240,33 @@ def print_nfs_srv_stats(mode):
             ic = int(calls)
             bc = int(badcl)
 
-            if mode == 'summary':
-                if ic > 0 or bc > 0:
-                    proto_list.append(proto)
-                continue
+            if ic > 0 or bc > 0:
+                proto_list.append(proto)
 
-            if ic > 0 and bc > 0:
-                total = float(ic + bc)
-                gcp = float(float(ic) / total) * 100
-                bcp = float(float(bc) / total) * 100
-                v = '%s, %d, (%d%%), %d, (%d%%)' % (proto, ic, gcp, bc, bcp)
-                f = '%s, %s, %s, %s, %s' %\
-                    ('%15s', '%15s', '%5s', '%15s', '%5s')
-                c = 'white, green, green, red, red'
-                d = 'lite,  bold, lite, bold, lite'
-                prfmt_mc_row(v, f, c, d)
-            elif ic > 0:
-                v = '%s, %s' % (ln, calls)
-                f = '%s, %s' % ('%25s', '%12s')
-                c = 'white, green'
-                d = 'lite,  lite'
-                prfmt_mc_row(v, f, c, d)
-            elif bc > 0:
-                v = '%s, %s' % (ln, badcl)
-                f = '%s, %s' % ('%25s', '%12s')
-                c = 'white, red'
-                d = 'lite,  lite'
-                prfmt_mc_row(v, f, c, d)
+            if vers == '2':
+                v = vers
+                op[v] = {}
+                for n in nfs2_ops:
+                    op[v][n] = {}
+                    op[v][n]['calls'] = data[ln][vers][n]['calls']
+                    op[v][n]['prcnt'] = data[ln][vers][n]['prcnt']
+
+            elif vers == '3':
+                v = vers
+                op[v] = {}
+                for n in nfs3_ops:
+                    op[v][n] = {}
+                    op[v][n]['calls'] = data[ln][vers][n]['calls']
+                    op[v][n]['prcnt'] = data[ln][vers][n]['prcnt']
+
+            elif vers == '4':
+                v = vers
+                op[v] = {}
+                for n in nfs4_ops:
+                    op[v][n] = {}
+                    op[v][n]['calls'] = data[ln][vers]['operations'][n]['calls']
+                    op[v][n]['prcnt'] = data[ln][vers]['operations'][n]['prcnt']
+
 
     if mode == 'summary' and NFSData == True:
         prfmt_lite(' ', '%5s', 'white', False)
@@ -2259,6 +2289,28 @@ def print_nfs_srv_stats(mode):
             return
         prfmt_lite(pstr, fmt, 'green', False)
     else:
+        for p in sorted(proto_list):
+            P = str(p)
+            print_proto_hdr(p)
+            vers = P[-1]
+            if vers == '2':
+                ops = nfs2_ops
+            elif vers == '3':
+                ops = nfs3_ops
+            else:
+                ops = nfs4_ops
+            for O in ops:
+                nfsop = O
+                calls = op[vers][O]['calls']
+                prcnt = op[vers][O]['prcnt']
+                if prcnt == '0%':
+                    continue
+                v = '%s, %s, %s' % (nfsop, calls, prcnt)
+                f = '%s, %s, %s' % ('%20s', '%15s', '%10s')
+                c = 'white, white, yellow'
+                d = 'bold,  lite, lite'
+                prfmt_mc_row(v, f, c, d)
+            print
         print
 
 
@@ -2976,7 +3028,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2015-12-18 12:37:00 +0600 (Fri, 18 Dec 2015) $"
+__last_updated__ = "$Date: 2016-01-13 11:00:00 +0600 (Wed, 13 Jan 2016) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
