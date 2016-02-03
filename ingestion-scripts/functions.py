@@ -809,22 +809,25 @@ def json_save(bdir, jsdmp, jsonfile):
 
 
 def valid_file(fname):
-    #print 'valid_file', fname
-    if os.path.exists(fname):
+    ofile = fname + '.out'
+
+    if os.path.exists(ofile):
         return True
     return False
 
 
 def valid_tball(fname):
-    #print 'valid_tball'
-    if os.path.exists(fname):
+    tfile = fname + '.tar.gz'
+
+    if os.path.exists(tfile):
         return True
     return False
 
 
 def valid_gzip(fname):
-    #print 'valid_gzip', fname
-    if os.path.exists(fname):
+    gzfile = fname + '.out.gz'
+
+    if os.path.exists(gzfile):
         return True
     return False
 
@@ -834,32 +837,13 @@ class Errors:
     e_ok, e_mpty, e_noent, e_tok, e_zok, e_nzrc, e_nan, e_stok = range(8)
 
 
-def valid_output(fname, skip=False):
-    out_text = fname + '.out'
-    err_text = fname + '.err'
-    stt_text = fname + '.stats'
-    tar_file = fname + '.tar.gz'
-    gzp_file = fname + '.out.gz'
+def output_status(fname):
+    sfile = fname + '.stats'
 
-    if valid_file(out_text):
-        size = os.stat(out_text).st_size        # is file empty ?
-        if size <= 0:
-            if valid_tball(tar_file):
-                return Errors.e_tok
-            return Errors.e_mpty
-    else:
-        return Errors.e_noent
-
-    if valid_gzip(gzp_file):
-        return Errors.e_zok
-
-    if skip:
-        return Errors.e_ok
-
-    if os.path.exists(stt_text):
-        size = os.stat(stt_text).st_size
+    if os.path.exists(sfile):           # stats file exists ?
+        size = os.stat(sfile).st_size
         if size > 0:
-            with open(stt_text, 'r') as f:
+            with open(sfile, 'r') as f:
                 for l in f.readlines():
                     l.rstrip('\n')
                     pattern = '^#.*$'           # skip comment lines
@@ -874,10 +858,47 @@ def valid_output(fname, skip=False):
                             rc = int(mp.group(1))
                         except ValueError:
                             return Errors.e_nan
-                            
+
                         if rc != 0:
                             return Errors.e_nzrc
                         break
             return Errors.e_stok
+    return Errors.e_noent
+
+
+def valid_tar_gz(fname):
+    ftgz = fname + '.tar.gz'
+
+    if not os.path.exists(ftgz):        # tar.gz file exists ?
+        return Errors.e_noent
+
+    rc = output_status(fname)
+    if rc != Errors.e_stok:
+        return rc
+
+    return Errors.e_ok
+
+
+def valid_output(fname, skip=False):
+    ofile = fname + '.out'
+
+    if valid_file(fname):
+        size = os.stat(ofile).st_size        # is file empty ?
+        if size <= 0:
+            if valid_tball(fname):
+                return Errors.e_tok
+            return Errors.e_mpty
+    else:
+        return Errors.e_noent
+
+    if valid_gzip(fname):
+        return Errors.e_zok
+
+    if skip:
+        return Errors.e_ok
+
+    rc = output_status(fname)
+    if rc != Errors.e_stok:
+        return rc
 
     return Errors.e_ok

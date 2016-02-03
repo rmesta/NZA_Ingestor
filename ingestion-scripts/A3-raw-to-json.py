@@ -36,11 +36,13 @@ def valid_collector_output(fname):
     src_file = raw_file
 
     called_by = caller()
-    if called_by == 'opthac_json' or called_by == 'fma_faults_json':
+    if called_by == 'opthac_json':
         src_file = tgz_file
-        
-    if called_by == 'lun_smartstat_json':
+        vostat = valid_tar_gz(fname)
+
+    elif called_by == 'lun_smartstat_json':
         vostat = valid_output(fname, True)
+
     else:
         vostat = valid_output(fname)
 
@@ -50,14 +52,17 @@ def valid_collector_output(fname):
                 print 'Non-Zero return code: ' +    \
                     'refer to', stt_file, 'for additional info'
             return False
+
         elif vostat == Errors.e_noent:
             if vcdbg:
                 print src_file, 'does not exist... skipping'
             return False
+
         elif vostat == Errors.e_mpty:
             if vcdbg:
                 print src_file, 'is empty... skipping'
             return False
+
         else:
             if vcdbg:
                 if vostat != Errors.e_tok and   \
@@ -2242,8 +2247,9 @@ def opthac_jsp(gzname):
         node = 'node' + str(l)
         hac['cluster'][node]['machid'] = hw[m]
 
-    if len(hac.keys()) == 1:
-        hac = None
+    if 'cluster' in hac:
+        if len(hac['cluster']) == 0:
+            return None
     return hac
 
 
@@ -2664,7 +2670,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2015-12-17 13:56:00 +0600 (Thr, 17 Dec 2015) $"
+__last_updated__ = "$Date: 2016-02-03 15:17:00 +0600 (Wed, 03 Feb 2016) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
