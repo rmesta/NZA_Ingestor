@@ -40,6 +40,9 @@ def valid_collector_output(fname):
         src_file = tgz_file
         vostat = valid_tar_gz(fname)
 
+    elif called_by == 'fma_faults_json':
+        vostat = valid_out_gz(fname)
+
     elif called_by == 'lun_smartstat_json':
         vostat = valid_output(fname, True)
 
@@ -2670,7 +2673,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2016-02-03 15:17:00 +0600 (Wed, 03 Feb 2016) $"
+__last_updated__ = "$Date: 2016-02-05 15:05:00 +0600 (Fri, 05 Feb 2016) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"

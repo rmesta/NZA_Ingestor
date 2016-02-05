@@ -879,6 +879,19 @@ def valid_tar_gz(fname):
     return Errors.e_ok
 
 
+def valid_out_gz(fname):
+    fogz = fname + '.out.gz'
+
+    if not os.path.exists(fogz):        # out.gz file exists ?
+        return Errors.e_noent
+
+    rc = output_status(fname)
+    if rc != Errors.e_stok:
+        return rc
+
+    return Errors.e_ok
+
+
 def valid_output(fname, skip=False):
     ofile = fname + '.out'
 
