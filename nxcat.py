@@ -621,6 +621,52 @@ def zp_status(zpool):
     return
 
 
+def sz_unit(size):
+    unit = size[-1]
+
+    if unit == 'Z':
+        exp = 7             # ZettaBytes
+    elif unit == 'E':
+        exp = 6             # ExaBytes
+    elif unit == 'P':
+        exp = 5             # PetaBytes
+    elif unit == 'T':
+        exp = 4             # TeraBytes
+    elif unit == 'G':
+        exp = 3             # GigaBytes
+    elif unit == 'M':
+        exp = 2             # MegaBytes
+    div = 1024**exp
+
+    return unit, div
+
+
+def zp_size_chk(zpool, zpsize):
+    global base
+    File = os.path.join(base, 'ingestor/json/zfs-get-p-all.out.json')
+
+    with open(File) as f:
+        zprops = json.load(f)
+
+    unit, div = sz_unit(zpsize)
+    if debug:
+        msg = "%s:\t%s" % (zpool, zpsize)
+        print_debug(msg, True)
+
+    for p in zprops:
+        if p == zpool:
+            val = zprops[p]['used']['value']
+
+            # abbreviate actual value into Eng units
+            nval = float(val) / div
+
+            if nval >= zpsize:
+                print_fail('\t\t### Warning: Over-provisioned ###')
+            elif debug:
+                fval = "{0:.2f}".format(nval) + unit
+                print_warn('Fully Used:\t%s' % fval, True)
+
+
 def zp_list(mode):
     global base
     File = os.path.join(base, 'ingestor/json/zpool-list-o-all.out.json')
@@ -676,6 +722,7 @@ def zp_list(mode):
                 tint = 'red'
             print 'Capacity:\t',
             print_bold(cap, tint, True)
+            zp_size_chk(name, size)
 
 
 #
@@ -3028,7 +3075,7 @@ __credits__ = ["Rick Mesta"]
 __license__ = "undefined"
 __version__ = "$Revision: " + _ver + " $"
 __created_date__ = "$Date: 2015-05-18 18:57:00 +0600 (Mon, 18 Mar 2015) $"
-__last_updated__ = "$Date: 2016-01-13 11:00:00 +0600 (Wed, 13 Jan 2016) $"
+__last_updated__ = "$Date: 2016-04-19 16:33:00 +0600 (Tue, 19 Apr 2016) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"

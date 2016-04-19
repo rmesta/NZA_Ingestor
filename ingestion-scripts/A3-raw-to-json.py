@@ -1411,6 +1411,114 @@ def network_json(bdir):
     json_save(bdir, jsdmp, jsout)
 
 
+def collector_stats_json(bdir):
+    fnsrc = 'collector.stats'
+    fndst = re.sub(r'\.', '_', fnsrc)
+    fname = os.path.join(bdir, fnsrc)
+    jsout = fndst + '.json'
+
+    jsdct = {}
+    for line in read_raw_txt(fname):
+        if line.startswith('Collector'):
+            patt = '^(\w+) \((\d+.\d+.\d+)\)\s+.*$'
+            mp = re.match(patt, line)
+            if mp:
+                key = mp.group(1).lower()
+                val = mp.group(2)
+                if key not in jsdct:
+                    jsdct[key] = val
+
+        elif line.startswith('Script'):
+            patt = '^(Script) (\w+): (.*)$'
+            mp = re.match(patt, line)
+            if mp:
+                key = ('%s_%s') % (mp.group(1).lower(), mp.group(2))
+                val = mp.group(3)
+                if key not in jsdct:
+                    jsdct[key] = val
+
+        elif line.startswith('Elapsed'):
+            patt = '^Elapsed \(s\): (.*)$'
+            mp = re.match(patt, line)
+            if mp:
+                key = 'secs_elapsed'
+                val = mp.group(1)
+                if key not in jsdct:
+                    jsdct[key] = val
+
+        elif line.startswith('Number'):
+            patt = '^Number of (\w+): (\d+)$'
+            mp = re.match(patt, line)
+            if mp:
+                key = mp.group(1)
+                val = mp.group(2)
+                if key not in jsdct:
+                    jsdct[key] = val
+
+        elif line.startswith('Commands'):
+            patt = '^Commands \(([a-zA-Z/]+)\): (\S+)$'
+            mp = re.match(patt, line)
+            if mp:
+                key = mp.group(1).split('/')
+                val = mp.group(2).split('/')
+                for k in key:
+                    K = 'cmd_'+k
+                    if K not in jsdct:
+                        jsdct[K] = val[key.index(k)]
+
+        elif line.startswith('Configuration'):
+            patt = '^Configuration file (\w+): (\S+)$'
+            mp = re.match(patt, line)
+            if mp:
+                key = 'cfg_' + mp.group(1)
+                val = mp.group(2)
+                if key not in jsdct:
+                    jsdct[key] = val
+
+        elif line.startswith('Appliance'):
+            patt = '^\w+ \w+: ([a-zA-Z ]+) \((v\d+.\d+.\d+[-\w+\d+\w*]*)\)$'
+            mp = re.match(patt, line)
+            if mp:
+                ka = [ 'appl_os_name', 'appl_os_version' ]
+                va = [ mp.group(1), mp.group(2) ]
+
+                for k in ka:
+                    if k not in jsdct:
+                        jsdct[k] = va[ka.index(k)]
+
+        elif line.startswith('License'):
+            patt = '^([a-zA-Z ]+): (\S+)$'
+            mp = re.match(patt, line)
+            if mp:
+                key = mp.group(1).lower().replace(" ", "_")
+                val = mp.group(2)
+                if key not in jsdct:
+                    jsdct[key] = val
+
+        elif line.startswith('Hostname'):
+            patt = '^Hostname: ([a-zA-Z0-9_-]+) \((\S+)\)$'
+            mp = re.match(patt, line)
+            if mp:
+                ka = [ 'hostname', 'fqhn' ]
+                va = [ mp.group(1), mp.group(2) ]
+
+                for k in ka:
+                    if k not in jsdct:
+                        jsdct[k] = va[ka.index(k)]
+
+        elif line.startswith('Working'):
+            patt = '^Working directory size: (\S+)$'
+            mp = re.match(patt, line)
+            if mp:
+                key = 'cwd_size'
+                val = mp.group(1)
+                if key not in jsdct:
+                    jsdct[key] = val
+
+    jsdmp = json.dumps(jsdct, indent=2, separators=(',', ': '), sort_keys=True)
+    json_save(bdir, jsdmp, jsout)
+
+
 def sharectl_getsmb_jsp(fname):
     sharesmb = {}
 
@@ -2601,6 +2709,7 @@ def main(bundle_dir):
                 'dladm_show_phys',      \
                 'ifconfig',             \
                 'network',              \
+                'collector_stats',      \
                 'itadm_list_tpg',       \
                 'itadm_list_target',    \
                 'for_lu_in_stmfadm',    \
@@ -2624,6 +2733,7 @@ def main(bundle_dir):
                 'zfs_arc_mdb_json':         zfs_arc_mdb_json,
                 'dladm_show_phys_json':     dladm_show_phys_json,
                 'network_json':             network_json,
+                'collector_stats_json':     collector_stats_json,
                 'ifconfig_json':            ifconfig_json,
                 'kdumps_json':              kdumps_json,
                 'sharectl_smb_json':        sharectl_getsmb_json,
@@ -2673,7 +2783,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2016-02-05 15:05:00 +0600 (Fri, 05 Feb 2016) $"
+__last_updated__ = "$Date: 2016-04-18 18:22:00 +0600 (Mon, 18 Apr 2016) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
