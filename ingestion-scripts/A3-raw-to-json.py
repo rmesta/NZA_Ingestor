@@ -2384,8 +2384,14 @@ def fmdump_evt_30day(bdir, errs):
     vfile = os.path.join(bdir, 'fmdump-evt-30day.out.gz')
     cs = ['zcat ', vfile]
     cmd = "".join(cs)
+    flimit = 10*1024*1024                   # 10MB File size limit (for now)
 
     faults = {}
+    sz = os.stat(vfile).st_size
+    if sz > flimit:
+        print vfile, 'exceeds size limits... skipping'
+        return faults
+
     cap = False
     for e in sorted(errs):
         flt = errs[e]['fault']
@@ -2783,7 +2789,7 @@ __credits__ = ["Rick Mesta, Billy Kettler"]
 __license__ = "undefined"
 __version__ = "$Revision: " + r2j_ver + " $"
 __created_date__ = "$Date: 2015-03-02 09:00:00 +0600 (Mon, 02 Mar 2015) $"
-__last_updated__ = "$Date: 2016-04-18 18:22:00 +0600 (Mon, 18 Apr 2016) $"
+__last_updated__ = "$Date: 2016-09-16 11:32:00 +0600 (Fri, 16 Sep 2016) $"
 __maintainer__ = "Rick Mesta"
 __email__ = "rick.mesta@nexenta.com"
 __status__ = "Production"
